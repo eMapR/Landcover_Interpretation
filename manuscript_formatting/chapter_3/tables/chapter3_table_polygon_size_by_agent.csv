@@ -1,5 +1,0 @@
-agent,n_polys,min_ha,median_ha,mean_ha,sd_ha,max_ha,total_km2
-harvest,7032,0.8,2.36,7.65,13.27,221.69,537.81
-development,2360,0.8,1.52,2.78,3.96,47.01,65.52
-beaver,678,0.8,1.3,1.88,2.49,48.93,12.74
-insect_disease_mort,99,0.81,1.47,2.76,7.72,77.62,2.74
