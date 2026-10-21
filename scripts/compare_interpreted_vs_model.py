@@ -45,14 +45,15 @@ import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.warp import reproject, Resampling
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 warnings.filterwarnings("ignore")
 
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 MODEL_DIR = "data/raw/model_maps"
 CROSSWALK = "data/reference/class_crosswalk.csv"
 MODEL_LEGEND = "data/reference/model_maps_10class_legend.csv"
-OUT_ROOT = "outputs"
+OUT_ROOT = SC.out_path("outputs")
 
 
 def load_mappings():
@@ -262,7 +263,7 @@ def location_key(path):
     Rasters sharing this key are the same location+time labeled by different
     reviewers (repeats); the reviewer name is intentionally excluded.
     """
-    m = re.search(r"grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)",
+    m = re.search(rf"grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)",
                   os.path.basename(path))
     return (m.group(1), m.group(2), m.group(3)) if m else (os.path.basename(path),)
 
@@ -389,7 +390,7 @@ def main():
     args = ap.parse_args()
 
     rf2common, names, colors = load_mappings()
-    cells = sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    cells = sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True))
 
     suffix = ""
     if args.targets:

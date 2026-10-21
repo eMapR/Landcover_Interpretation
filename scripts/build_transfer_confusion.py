@@ -29,12 +29,13 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import rasterio
+import sensor_config as SC  # RF_DIR, out_path (LCI_RF_DIR / LCI_OUT_DIR)
 
 warnings.filterwarnings("ignore")
 
 PRED_DIR = "data/raw/transfer_predictions"
-RF_DIR = "data/raw/rf_class_maps"
-OUT = "reports/transfer_confusion"
+RF_DIR = SC.RF_DIR
+OUT = SC.out_path("reports/transfer_confusion")
 SEED = 42
 BRACKETS = ["2017_2019", "2018_2020", "2019_2021", "2020_2022", "2021_2023"]
 CONTROL = "2018_2020"
@@ -278,7 +279,7 @@ def main():
         chosen_ref, n_double, missing, mismatch = choose_references_truth(ref_index, truth)
         ref_desc = (f"the adjudicated reviewer from {os.path.basename(args.truth)} "
                     f"(notebooks/adjudicate_truth.ipynb)")
-        OUT = args.out or "reports/transfer_confusion_adjudicated"
+        OUT = args.out or SC.out_path("reports/transfer_confusion_adjudicated")
         os.makedirs(OUT, exist_ok=True)
         print(f"reference cells indexed: {len(ref_index)}   multi-interpreted using the adjudicated "
               f"choice: {n_double}  -> reference from {args.truth}")

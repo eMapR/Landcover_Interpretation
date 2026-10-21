@@ -8,6 +8,8 @@ Run: python scripts/build_adjudicate_notebook.py
 import json
 import os
 
+import sensor_config as SC  # RF_DIR, out_path (LCI_RF_DIR / LCI_OUT_DIR)
+
 MD_INTRO = r"""# Interpreter truth adjudication
 
 Select one authoritative CKIT-RF interpretation per location, then export the truth set.
@@ -384,9 +386,23 @@ def md(src):
     return {"cell_type": "markdown", "metadata": {}, "source": src}
 
 
+def config_cell():
+    """CFG with LCI_RF_DIR / LCI_OUT_DIR written in as literal paths when set; unchanged otherwise."""
+    cfg = CFG
+    subs = []
+    if os.environ.get("LCI_RF_DIR"):
+        subs.append(('RF_DIR = os.path.join(REPO, "data", "raw", "rf_class_maps")', f"RF_DIR = {SC.RF_DIR!r}"))
+    if SC.OUT_DIR:
+        subs.append(('EXPORT_DIR = os.path.join(REPO, "exports")', f"EXPORT_DIR = {SC.out_path('exports')!r}"))
+    for old, new in subs:
+        assert cfg.count(old) == 1, old
+        cfg = cfg.replace(old, new)
+    return cfg
+
+
 def main():
     nb = {
-        "cells": [md(MD_INTRO), code(CFG), code(SCAN), code(PALETTE), code(STATE), code(GUI),
+        "cells": [md(MD_INTRO), code(config_cell()), code(SCAN), code(PALETTE), code(STATE), code(GUI),
                   code(EXPORT)],
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -394,8 +410,8 @@ def main():
         },
         "nbformat": 4, "nbformat_minor": 5,
     }
-    out = os.path.join("notebooks", "adjudicate_truth.ipynb")
-    os.makedirs("notebooks", exist_ok=True)
+    out = SC.out_path(os.path.join("notebooks", "adjudicate_truth.ipynb"))
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as fh:
         json.dump(nb, fh, indent=1)
     print(f"wrote {out}")

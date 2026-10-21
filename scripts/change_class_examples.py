@@ -22,6 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgb
 from matplotlib.patches import Patch, Rectangle
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONN = np.ones((3, 3), int)                                # 8-connectivity
@@ -57,6 +58,7 @@ def largest_patch(a, ckit):
 def render(path, ckit, disp, rev, grid, samp, tgt, out_dir):
     with rasterio.open(path) as s:
         a = s.read(1)
+        pix_ha = SC.pixel_area_m2(s.transform, s.crs) / SC.M2_PER_HA
     _, patch = largest_patch(a, ckit)
     ref10 = bmc._REF_LUT[np.where((a >= 0) & (a <= 62), a, 0)]
     img = CLUT[ref10]
@@ -80,7 +82,7 @@ def render(path, ckit, disp, rev, grid, samp, tgt, out_dir):
     zr0, zr1, zc0, zc1 = max(r0 - z, 0), min(r1 + z, H), max(c0 - z, 0), min(c1 + z, W)
     ax1.imshow(img[zr0:zr1, zc0:zc1], interpolation="nearest")
     ax1.contour(patch[zr0:zr1, zc0:zc1].astype(float), levels=[0.5], colors="black", linewidths=1.8)
-    ax1.set_title(f"Zoom on the largest {disp} patch\n{npx} px (~{npx * 0.01:.1f} ha)", fontsize=11)
+    ax1.set_title(f"Zoom on the largest {disp} patch\n{npx} px (~{npx * pix_ha:.1f} ha)", fontsize=11)
     ax1.set_xticks([]); ax1.set_yticks([])
 
     present = sorted({int(c) for c in np.unique(ref10) if c > 0})
@@ -93,7 +95,7 @@ def render(path, ckit, disp, rev, grid, samp, tgt, out_dir):
     out = f"{out_dir}/{tag}_example_{rev}_cell{grid}_sample{samp}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    return out, npx
+    return out, npx, pix_ha
 
 
 def select(cells, k=5):
@@ -119,11 +121,11 @@ def main():
     ap.add_argument("--k", type=int, default=5)
     args = ap.parse_args()
     ckit, disp = CLASSES[args.cls]
-    out_dir = f"{ROOT}/reports/{args.cls}_examples"
+    out_dir = SC.out_path(f"reports/{args.cls}_examples", ROOT)
     os.makedirs(out_dir, exist_ok=True)
 
     cells, per_rev = [], {}
-    for f in sorted(glob.glob(f"{ROOT}/data/raw/rf_class_maps/**/*Sentinel-2*.tif", recursive=True)):
+    for f in sorted(glob.glob(os.path.join(ROOT, SC.RF_DIR, "**", SC.RF_GLOB), recursive=True)):
         m = re.search(r"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_.*target_(\d+)", os.path.basename(f), re.I)
         if not m:
             continue
@@ -140,9 +142,9 @@ def main():
     print(f"reviewers without any {disp}: "
           + (", ".join(r for r in sorted(per_rev) if not per_rev[r]) or "none"))
     for mx, rev, grid, samp, tgt, f in select(cells, args.k):
-        out, npx = render(f, ckit, disp, rev, grid, samp, tgt, out_dir)
+        out, npx, pix_ha = render(f, ckit, disp, rev, grid, samp, tgt, out_dir)
         print(f"  {rev:<8} sample {samp:>4} grid {grid:>6} target {tgt}  patch {npx} px "
-              f"(~{npx*0.01:.1f} ha)  -> {os.path.basename(out)}")
+              f"(~{npx*pix_ha:.1f} ha)  -> {os.path.basename(out)}")
 
 
 if __name__ == "__main__":

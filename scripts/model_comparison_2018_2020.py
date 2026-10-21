@@ -40,11 +40,11 @@ from rasterio.warp import reproject, Resampling
 
 warnings.filterwarnings("ignore")
 
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 MODEL_DIR = "data/raw/model_maps"
 CROSSWALK = "data/reference/class_crosswalk.csv"
 LEGEND = "data/reference/model_maps_10class_legend.csv"
-OUT = "reports/model_comparison_2018_2020"
+OUT = SC.out_path("reports/model_comparison_2018_2020")
 VERSIONS = ["v2", "v3", "v4", "v5", "v6"]
 TARGET = "2019"
 N_FRAME = 21561
@@ -55,6 +55,7 @@ MIN_SUP = 100                                           # px; below this a per-c
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collapsed_5class_confusion as cc  # canonical 5-class collapse
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 # canonical 5-class collapse, shared from collapsed_5class_confusion (Other -> Stable, Unknown drop)
 NAMES5 = cc.NAMES5
@@ -73,12 +74,12 @@ def load_10class():
 
 
 def location_key(path):
-    m = re.search(r"grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)", os.path.basename(path))
+    m = re.search(rf"grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)", os.path.basename(path))
     return (m.group(1), m.group(2), m.group(3)) if m else (os.path.basename(path),)
 
 
 def deduped_2019():
-    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True))
     groups_all, groups_t = defaultdict(list), defaultdict(list)
     for p in paths:
         k = location_key(p)

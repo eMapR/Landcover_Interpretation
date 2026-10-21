@@ -24,14 +24,15 @@ from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 import rasterio
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 RF_LEGEND = "data/reference/label_lookup.csv"
-BASE = "reports/interpreter_agreement/change_stable_conflicts"
+BASE = SC.out_path("reports/interpreter_agreement/change_stable_conflicts")
 LONG_CSV = os.path.join(BASE, "change_stable_pixels_long.csv")
 OUT = os.path.join(BASE, "examples")
 N_TOP = 10
-NAME_RE = re.compile(r"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)", re.I)
+NAME_RE = re.compile(rf"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)", re.I)
 
 
 def _caption(fig, text, top=1.0, width=125):
@@ -53,7 +54,7 @@ def load_legend():
 def pair_index():
     """(grid,sample,target) -> {reviewer: path} for the double-interpreted cells."""
     groups = defaultdict(dict)
-    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True)):
+    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True)):
         m = NAME_RE.search(os.path.basename(f))
         if m:
             groups[(m.group(2), m.group(3), m.group(4))][m.group(1).lower()] = f

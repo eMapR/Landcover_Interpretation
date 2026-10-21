@@ -6,7 +6,7 @@ for each ordered class pair (A, B) where reviewer_a said A and reviewer_b said B
 (direction kept, NOT symmetrized), build the binary disagreement mask per cell, run
 8-connected component labeling, and measure each patch:
 
-  area        pixel count (and hectares at 10 m: 1 px = 0.01 ha)
+  area        pixel count (and hectares from the raster transform; 1 px = 0.01 ha at 10 m)
   perimeter   4-connected boundary-edge count (a single pixel = 4; not a vertex trace)
   pa_ratio    perimeter / area
   shape_index P / (2*sqrt(pi*A)) — normalized against a circle of equal area, so it
@@ -50,9 +50,9 @@ from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreters as CI  # find_pairs / load_legend
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = "reports/interpreter_agreement/geometry"
-PIX_HA = 0.01
 STRUCT = np.ones((3, 3), int)      # 8-connectivity
 AREA_THRESH_HA = 0.1               # 0.1 ha = 10 px at 10 m
 rng = np.random.default_rng(42)    # only used if any sampling is needed
@@ -77,7 +77,7 @@ def per_pixel_perimeter(mask):
     return (4 - nin) * m           # 0 off-mask; single pixel -> 4
 
 
-def patch_rows(mask, cell_id, ra, rb, ca, cb, kind, names):
+def patch_rows(mask, cell_id, ra, rb, ca, cb, kind, names, pix_ha):
     """Label `mask` (8-conn) and return one dict per connected patch."""
     lab, n = ndimage.label(mask, structure=STRUCT)
     if n == 0:
@@ -95,7 +95,7 @@ def patch_rows(mask, cell_id, ra, rb, ca, cb, kind, names):
         rows.append(dict(
             cell_id=cell_id, reviewer_a=ra, reviewer_b=rb,
             class_a=names[ca], class_b=names[cb], patch_id=lid,
-            area_px=int(A), area_ha=round(A * PIX_HA, 4),
+            area_px=int(A), area_ha=round(A * pix_ha, 4),
             perimeter=int(P), pa_ratio=round(P / A, 4),
             shape_index=round(P / (2 * np.sqrt(np.pi * A)), 4),
             width_px=round(2 * A / P, 4) if P else np.nan,
@@ -120,17 +120,18 @@ def main():
             b = s.read(1)
         if a.shape != b.shape:
             continue
+        pix_ha = SC.uniform_pixel_area_m2([fA, fB]) / SC.M2_PER_HA
         valid = np.isin(a, codes) & np.isin(b, codes)
 
         # disagreement: directed class pairs (A != B)
         dis = valid & (a != b)
         for (A, B) in {(int(x), int(y)) for x, y in zip(a[dis], b[dis])}:
-            rows += patch_rows((a == A) & (b == B), cell_id, ra, rb, A, B, "disagreement", names)
+            rows += patch_rows((a == A) & (b == B), cell_id, ra, rb, A, B, "disagreement", names, pix_ha)
 
         # agreement reference: both concur on class C
         agr = valid & (a == b)
         for C in {int(x) for x in a[agr]}:
-            rows += patch_rows((a == C) & (b == C), cell_id, ra, rb, C, C, "agreement", names)
+            rows += patch_rows((a == C) & (b == C), cell_id, ra, rb, C, C, "agreement", names, pix_ha)
 
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(OUT, "patch_geometry.csv"), index=False)

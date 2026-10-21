@@ -45,14 +45,15 @@ import pandas as pd
 import rasterio
 from rasterio.warp import reproject, Resampling
 from scipy import ndimage
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 warnings.filterwarnings("ignore")
 
 MODEL_DIR = "data/raw/model_maps"
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 CROSSWALK = "data/reference/class_crosswalk.csv"
 LEGEND = "data/reference/model_maps_10class_legend.csv"
-OUT_ROOT = "reports/variant_difference_maps"
+OUT_ROOT = SC.out_path("reports/variant_difference_maps")
 
 VARIANTS = ["v2", "v3", "v4", "v5"]                     # v6 excluded (per-pixel speckle)
 CHANGE_CODES = [1, 2, 9, 10]                            # harvest, development, beaver, insect/disease
@@ -61,7 +62,6 @@ RENDER_DS = 16                                          # full-map overview deci
 LABEL_DS = 8                                            # patch-labeling grid (80 m); divides tile edge
 BLOCK = 2048                                            # row-block height for streaming (mult. of both DS)
 STRUCT = np.ones((3, 3), int)                           # 8-connectivity for connected components
-PIX_HA = 0.01                                           # one 10 m pixel = 100 m^2 = 0.01 ha
 # a labeling block counts toward a patch only if it is at least this dense in change-involved
 # disagreement. change-involved disagreement is widespread (the variants disagree on change over
 # large areas), so without a density floor 8-connectivity merges the whole diffuse field into one
@@ -165,6 +165,12 @@ def open_tiles(version):
         tiles.append((ds, off, ds.width))
         off += ds.width
     return tiles
+
+
+def mosaic_pixel_m2(tiles):
+    """Area (m^2) of one mosaic pixel, from the first tile's transform and CRS."""
+    ds = tiles[0][0]
+    return SC.pixel_area_m2(ds.transform, ds.crs)
 
 
 def mosaic_dims(tiles):
@@ -299,7 +305,8 @@ def stream_pair(tilesA, tilesB, H, W, max_rows=None):
 
 
 # ----------------------------------------------------------------------------- outputs
-def write_stats(out_dir, stats, names, A_name, B_name):
+def write_stats(out_dir, stats, names, A_name, B_name, pix_m2):
+    pix_ha, pix_km2 = pix_m2 / SC.M2_PER_HA, pix_m2 / SC.M2_PER_KM2
     cat_px = stats["cat_px"]
     valid = cat_px[1:].sum()
     rows = []
@@ -307,15 +314,15 @@ def write_stats(out_dir, stats, names, A_name, B_name):
         px = int(cat_px[c])
         rows.append(dict(category=c, label=CAT_LABEL[c].replace("A", A_name).replace("B", B_name)
                          if c in (3, 4) else CAT_LABEL[c],
-                         pixels=px, area_ha=round(px * PIX_HA, 2),
-                         area_km2=round(px * 1e-4, 4),
+                         pixels=px, area_ha=round(px * pix_ha, 2),
+                         area_km2=round(px * pix_km2, 4),
                          pct_of_valid=round(100 * px / valid, 4) if valid and c > 0 else np.nan))
     pd.DataFrame(rows).to_csv(os.path.join(out_dir, "category_stats.csv"), index=False)
 
     # cat5 directed change-class pairs
     p = stats["cat5_pair"]
     r5 = [dict(A_class=names[a], B_class=names[b], pixels=int(p[a, b]),
-               area_ha=round(int(p[a, b]) * PIX_HA, 2))
+               area_ha=round(int(p[a, b]) * pix_ha, 2))
           for a in CHANGE_CODES for b in CHANGE_CODES if a != b and p[a, b] > 0]
     pd.DataFrame(sorted(r5, key=lambda d: -d["pixels"])).to_csv(
         os.path.join(out_dir, "cat5_change_pairs.csv"), index=False)
@@ -324,7 +331,7 @@ def write_stats(out_dir, stats, names, A_name, B_name):
     for arr, col, fn in [(stats["cat3_cls"], A_name, "cat3_Achange_by_class.csv"),
                          (stats["cat4_cls"], B_name, "cat4_Bchange_by_class.csv")]:
         rr = [dict(change_class=names[c], detected_by=col, pixels=int(arr[c]),
-                   area_ha=round(int(arr[c]) * PIX_HA, 2))
+                   area_ha=round(int(arr[c]) * pix_ha, 2))
               for c in CHANGE_CODES if arr[c] > 0]
         pd.DataFrame(sorted(rr, key=lambda d: -d["pixels"])).to_csv(
             os.path.join(out_dir, fn), index=False)
@@ -416,7 +423,7 @@ def render_change_map(out_dir, render, names, colors, A_name, B_name):
     plt.close(fig)
 
 
-def label_patches(labelcount):
+def label_patches(labelcount, pix_ha):
     """8-connected components of the change-involved disagreement, with exact areas.
 
     Labeling is done on the 80 m grid, but each block carries the exact number of full-res
@@ -432,7 +439,7 @@ def label_patches(labelcount):
     for i, sl in enumerate(slices):
         sy, sx = sl
         patches.append(dict(
-            pid=i + 1, area_px=int(areas[i]), area_ha=round(int(areas[i]) * PIX_HA, 2),
+            pid=i + 1, area_px=int(areas[i]), area_ha=round(int(areas[i]) * pix_ha, 2),
             r0=sy.start * LABEL_DS, r1=sy.stop * LABEL_DS,
             c0=sx.start * LABEL_DS, c1=sx.stop * LABEL_DS))
     patches.sort(key=lambda d: -d["area_px"])
@@ -584,6 +591,7 @@ def render_cell_overlay(out_dir, rank, score, cell, tilesA, tilesB, mosaic_tf, r
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
 
+    pix_ha = mosaic_pixel_m2(tilesA) / SC.M2_PER_HA
     r0, r1, c0, c1 = cell_extent(cell, mosaic_tf)
     A = read_window(tilesA, r0, r1, c0, c1)
     B = read_window(tilesB, r0, r1, c0, c1)
@@ -604,7 +612,7 @@ def render_cell_overlay(out_dir, rank, score, cell, tilesA, tilesB, mosaic_tf, r
                for c in range(1, 11)]
     fig.legend(handles=handles, loc="lower center", ncol=10, fontsize=7, bbox_to_anchor=(0.5, 0.09))
     fig.suptitle(f"interpreted cell {gid}  ({km:.1f} x {km:.1f} km, same extent in all three "
-                 f"panels)  ·  {score * PIX_HA:.0f} ha change-involved {A_name}/{B_name} "
+                 f"panels)  ·  {score * pix_ha:.0f} ha change-involved {A_name}/{B_name} "
                  f"disagreement in the cell", fontsize=10)
     _caption(fig, f"Three panels show one whole interpreted cell at the same extent for variant "
              f"{A_name}, variant {B_name}, and the interpreted reference, in the shared 10-class "
@@ -664,6 +672,7 @@ def render_cell_panel(out_dir, rank, score, cell, tiles, allv, mosaic_tf, rf2com
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
 
+    pix_ha = mosaic_pixel_m2(tiles[allv[0]]) / SC.M2_PER_HA
     r0, r1, c0, c1 = cell_extent(cell, mosaic_tf)
     panels = [(v, read_window(tiles[v], r0, r1, c0, c1)) for v in allv]
     panels.append(("interpreted reference", _interp_from_cell(cell, rf2common)))
@@ -681,7 +690,7 @@ def render_cell_panel(out_dir, rank, score, cell, tiles, allv, mosaic_tf, rf2com
     fig.legend(handles=handles, loc="lower center", ncol=10, fontsize=8, bbox_to_anchor=(0.5, 0.08))
     fig.suptitle(f"interpreted cell {gid}  ({km:.1f} x {km:.1f} km, same extent in every panel)  "
                  f"·  all five variants vs the interpreted reference  ·  ranked #{rank} by v2-v5 "
-                 f"in-cell disagreement ({score * PIX_HA:.0f} ha)", fontsize=11)
+                 f"in-cell disagreement ({score * pix_ha:.0f} ha)", fontsize=11)
     _caption(fig, "Six panels show one interpreted cell at the same extent: the five embedding "
              "variants v2 through v6 and the interpreted reference, all in the shared 10-class color "
              "scheme. The cell is ranked by how much the four smooth variants v2 to v5 disagree "
@@ -696,12 +705,12 @@ def render_cell_panel(out_dir, rank, score, cell, tiles, allv, mosaic_tf, rf2com
 
 # ----------------------------------------------------------------------------- interpreted cells
 def location_key(path):
-    m = re.search(r"grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)", os.path.basename(path))
+    m = re.search(rf"grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)", os.path.basename(path))
     return (m.group(1), m.group(2), m.group(3)) if m else (os.path.basename(path),)
 
 
 def deduped_cells(seed=42):
-    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True))
     groups = defaultdict(list)
     for p in paths:
         groups[location_key(p)].append(p)
@@ -746,13 +755,15 @@ def run_pair(A_name, B_name, cells, rf2common, names, colors, cmaps, max_rows, n
     tilesB = open_tiles(B_name)
     H, W = mosaic_dims(tilesA)
     mosaic_tf = tilesA[0][0].transform
+    pix_m2 = mosaic_pixel_m2(tilesA)
+    pix_ha = pix_m2 / SC.M2_PER_HA
 
     render, labelcount, stats = stream_pair(tilesA, tilesB, H, W, max_rows=max_rows)
     np.save(os.path.join(out_dir, "render_grid.npy"), render)   # cache so map appearance can be
-    cat_px = write_stats(out_dir, stats, names, A_name, B_name)  # re-rendered without re-streaming
+    cat_px = write_stats(out_dir, stats, names, A_name, B_name, pix_m2)  # re-rendered without re-streaming
     render_full_map(out_dir, render, diff_cmap, diff_norm, names, colors, A_name, B_name)
 
-    patches = label_patches(labelcount)
+    patches = label_patches(labelcount, pix_ha)
     print(f"  change-involved disagreement patches: {len(patches)}", flush=True)
 
     # top-N largest patches overall -> zoomed crops
@@ -802,10 +813,10 @@ def run_pair(A_name, B_name, cells, rf2common, names, colors, cmaps, max_rows, n
 
     summary = dict(pair=f"{A_name}_vs_{B_name}",
                    agree_pct=round(100 * cat_px[1] / cat_px[1:].sum(), 3),
-                   cat2_stable_mismatch_ha=round(cat_px[2] * PIX_HA, 1),
-                   cat3_Achange_ha=round(cat_px[3] * PIX_HA, 1),
-                   cat4_Bchange_ha=round(cat_px[4] * PIX_HA, 1),
-                   cat5_changechange_ha=round(cat_px[5] * PIX_HA, 1),
+                   cat2_stable_mismatch_ha=round(cat_px[2] * pix_ha, 1),
+                   cat3_Achange_ha=round(cat_px[3] * pix_ha, 1),
+                   cat4_Bchange_ha=round(cat_px[4] * pix_ha, 1),
+                   cat5_changechange_ha=round(cat_px[5] * pix_ha, 1),
                    n_patches=len(patches),
                    largest_patch_ha=top[0]["area_ha"] if top else 0.0,
                    top_hits_cell=n_top_hit)

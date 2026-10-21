@@ -38,9 +38,9 @@ from scipy import ndimage
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreters as CI
 import disagreement_geometry as DG   # per_pixel_perimeter, classic, ecdf, FOCUS_LABELS, STRUCT
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = DG.OUT
-PIX_HA = 0.01
 THRESH_HA = 0.1
 GS, WET = 2, 5
 rng = np.random.default_rng(42)
@@ -74,6 +74,7 @@ def build_patches(pairs, names, codes):
             b = s.read(1)
         if a.shape != b.shape:
             continue
+        pix_ha = SC.uniform_pixel_area_m2([fA, fB]) / SC.M2_PER_HA
         valid = np.isin(a, codes) & np.isin(b, codes)
         dis = valid & (a != b)
         for (A, B) in {(int(x), int(y)) for x, y in zip(a[dis], b[dis])}:
@@ -93,7 +94,7 @@ def build_patches(pairs, names, codes):
                 sl = objs[lid - 1]
                 bbox = (sl[0].stop - sl[0].start) * (sl[1].stop - sl[1].start)
                 rows.append(dict(cell_id=cid, class_a=names[A], class_b=names[B],
-                                 area_px=int(Ap), area_ha=Ap * PIX_HA,
+                                 area_px=int(Ap), area_ha=Ap * pix_ha,
                                  shape_index=P / (2 * np.sqrt(np.pi * Ap)),
                                  width_px=2 * Ap / P if P else np.nan,
                                  extent=Ap / bbox, touches_edge=bool(lid in edge_labels)))
@@ -200,6 +201,7 @@ def render_top10(pairs, names, colors, csv_path, png_path):
             b = s.read(1)
         if a.shape != b.shape:
             continue
+        pix_ha = SC.uniform_pixel_area_m2([fA, fB]) / SC.M2_PER_HA
         mask = ((a == GS) & (b == WET)) | ((a == WET) & (b == GS))
         lab, n = ndimage.label(mask, structure=DG.STRUCT)
         if n == 0:
@@ -211,7 +213,7 @@ def render_top10(pairs, names, colors, csv_path, png_path):
             Ap, P = int(area[lid - 1]), perim[lid - 1]
             sl = objs[lid - 1]
             bbox = (sl[0].stop - sl[0].start) * (sl[1].stop - sl[1].start)
-            cand.append(dict(cell_id=cid, lid=lid, area_px=Ap, area_ha=round(Ap * PIX_HA, 3),
+            cand.append(dict(cell_id=cid, lid=lid, area_px=Ap, area_ha=round(Ap * pix_ha, 3),
                              shape_index=round(P / (2 * np.sqrt(np.pi * Ap)), 3),
                              width_px=round(2 * Ap / P, 3), extent=round(Ap / bbox, 3)))
     cdf = pd.DataFrame(cand).sort_values("area_px", ascending=False).head(10).reset_index(drop=True)

@@ -66,6 +66,7 @@ import rasterio
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreted_vs_model as C
 import collapsed_5class_confusion as cc  # canonical 5-class collapse
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = "reports/Case_ABCD_sampling"
 N = 10
@@ -296,7 +297,7 @@ def main():
         _make_plots(names, args.versions)
         print(f"regenerated plots -> {OUT}/")
         return
-    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", SC.RF_GLOB), recursive=True))
     if args.truth:
         cells, missing, mismatch = select_by_truth(cells, args.truth)
         if mismatch:

@@ -22,11 +22,12 @@ import warnings
 import numpy as np
 import pandas as pd
 import rasterio
+import sensor_config as SC  # RF_DIR, out_path (LCI_RF_DIR / LCI_OUT_DIR)
 
 warnings.filterwarnings("ignore")
 
-RF_DIR = "data/raw/rf_class_maps"
-OUT_DIR = "exports/gee"
+RF_DIR = SC.RF_DIR
+OUT_DIR = SC.out_path("exports/gee")
 CSV_PATH = os.path.join(OUT_DIR, "ckit_cell_grids.csv")
 
 FNAME_RE = re.compile(r"grid_(\d+)_sample_")

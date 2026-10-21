@@ -34,18 +34,21 @@ import rasterio
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreters as CI
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = "reports/interpreter_agreement"
-PIX_HA = 0.01
 rng = np.random.default_rng(42)
 
 
 def build_pair_cms():
-    """Return (order, names, list of (revA, revB, cm)) with cm[i,j]=px A=code_i,B=code_j."""
+    """Return (order, names, list of (revA, revB, cm), pix_ha) with cm[i,j]=px A=code_i,B=code_j.
+
+    pix_ha is the pixel area shared by every raster used (pooled px -> ha needs one pixel size).
+    """
     codes, names, _ = CI.load_legend()
     order = sorted(codes)
     pairs = CI.find_pairs()
-    out = []
+    out, used = [], []
     for (gid, samp, tgt), revs in sorted(pairs.items()):
         (ra, fA), (rb, fB) = revs[0], revs[1]
         with rasterio.open(fA) as s:
@@ -56,7 +59,8 @@ def build_pair_cms():
             continue
         cm, _ = CI.confusion(a, b, order)
         out.append((ra, rb, cm))
-    return order, names, out
+        used += [fA, fB]
+    return order, names, out, SC.uniform_pixel_area_m2(used) / SC.M2_PER_HA
 
 
 def pool_claims(cms, reviewers, C):
@@ -76,7 +80,7 @@ def pool_claims(cms, reviewers, C):
 
 
 def main(boot=2000):
-    order, names, cms = build_pair_cms()
+    order, names, cms, pix_ha = build_pair_cms()
     C = len(order)
     reviewers = sorted({r for A, B, _ in cms for r in (A, B)})
     n_pairs = {r: sum(1 for A, B, _ in cms if r in (A, B)) for r in reviewers}
@@ -103,8 +107,8 @@ def main(boot=2000):
             lo, hi = (np.percentile(b, 2.5), np.percentile(b, 97.5)) if b.size else (np.nan, np.nan)
             idx = float(np.log2((cs + 1) / (co + 1)))
             rows.append(dict(reviewer=r, cls=names[code], code=code,
-                             claim_self_ha=round(cs * PIX_HA, 1),
-                             claim_partner_ha=round(co * PIX_HA, 1),
+                             claim_self_ha=round(cs * pix_ha, 1),
+                             claim_partner_ha=round(co * pix_ha, 1),
                              log2_index=round(idx, 3),
                              ci_lo=round(float(lo), 3), ci_hi=round(float(hi), 3),
                              significant=bool(lo > 0 or hi < 0), n_pairs=n_pairs[r]))
@@ -124,7 +128,7 @@ def main(boot=2000):
                     continue
                 dp.append(dict(reviewer=r, says=names[order[i]], partner_says=names[order[j]],
                                px_R_over=int(a), px_partner_over=int(b2),
-                               area_R_over_ha=round(a * PIX_HA, 1),
+                               area_R_over_ha=round(a * pix_ha, 1),
                                log2_ratio=round(float(np.log2((a + 1) / (b2 + 1))), 3)))
     dpdf = pd.DataFrame(dp).sort_values(["reviewer", "log2_ratio"], ascending=[True, False])
     dpdf.to_csv(os.path.join(OUT, "reviewer_directed_classpairs.csv"), index=False)

@@ -49,12 +49,13 @@ import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.warp import reproject, Resampling
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 warnings.filterwarnings("ignore")
 
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 MODEL_DIR = "data/raw/model_maps"
-OUT = "reports/collapsed_5class_confusion"
+OUT = SC.out_path("reports/collapsed_5class_confusion")
 VERSIONS = ["v2", "v3", "v4", "v5", "v6"]
 N_FRAME = 21561                                         # cells in the sampling frame
 SEED = 42
@@ -88,12 +89,12 @@ def collapse_prediction(a):
 
 # ----------------------------------------------------------------------------- cells and stitching
 def location_key(path):
-    m = re.search(r"grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)", os.path.basename(path))
+    m = re.search(rf"grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)", os.path.basename(path))
     return (m.group(1), m.group(2), m.group(3)) if m else (os.path.basename(path),)
 
 
 def deduped_cells(seed=SEED):
-    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True))
     groups = defaultdict(list)
     for p in paths:
         groups[location_key(p)].append(p)
@@ -115,7 +116,7 @@ def _cell_bracket_gid(path):
 
 def select_by_truth(truth_csv):
     """Keep one raster per location using the adjudicated reviewer from the truth CSV."""
-    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    paths = sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True))
     df = pd.read_csv(truth_csv, dtype=str, keep_default_na=False)
     truth = {str(int(g)).zfill(5): rev.strip().lower() for g, rev in zip(df.grid_id, df.reviewer)}
     rx = re.compile(r"reviewer_([A-Za-z]+)_grid_(\d+)_", re.I)

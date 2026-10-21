@@ -34,18 +34,18 @@ import numpy as np
 import pandas as pd
 import rasterio
 from scipy import ndimage
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 warnings.filterwarnings("ignore")
 
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 RF_LEGEND = "data/reference/label_lookup.csv"
-OUT = "reports/interpreter_agreement/change_change_conflicts"
+OUT = SC.out_path("reports/interpreter_agreement/change_change_conflicts")
 
-NAME_RE = re.compile(r"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)", re.I)
+NAME_RE = re.compile(rf"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)", re.I)
 CHANGE = [20, 30, 50, 62]                               # harvest, development, insect/disease, beaver
 UNKNOWN = 10                                            # unattributed disturbance, not a type conflict
 STRUCT = np.ones((3, 3), int)                           # 8-connectivity
-PIX_HA = 0.01                                           # one 10 m pixel = 0.01 ha
 
 
 def load_names():
@@ -56,14 +56,15 @@ def load_names():
 def find_pairs():
     """{(grid,sample,target): [(reviewer, path), ...]} for cells with >1 reviewer, alphabetical."""
     groups = defaultdict(list)
-    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True)):
+    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True)):
         m = NAME_RE.search(os.path.basename(f))
         if m:
             groups[(m.group(2), m.group(3), m.group(4))].append((m.group(1).lower(), f))
     return {k: sorted(v) for k, v in groups.items() if len(v) > 1}
 
 
-def write_data_dictionary(n_long, n_patches):
+def write_data_dictionary(n_long, n_patches, pix_ha):
+    side_m = (pix_ha * SC.M2_PER_HA) ** 0.5
     names = load_names()[0]
     change = ", ".join(f"{names[c]} ({c})" for c in CHANGE)
     txt = f"""# change_change_conflicts data dictionary
@@ -92,7 +93,7 @@ use the symmetrized totals in `ordered_pairs.csv` for reviewer-order-independent
 | B_class | the change class reviewer B assigned to the same pixels |
 | class_pair | `A_class->B_class`, the directed conflict label |
 | pixels | number of conflict pixels of this class pair in this cell |
-| area_ha | pixels x 0.01 ha (one 10 m pixel = 0.01 ha) |
+| area_ha | pixels x {pix_ha:g} ha (one {side_m:g} m pixel = {pix_ha:g} ha) |
 
 ## change_change_patches.csv  ({n_patches} rows)
 
@@ -109,7 +110,7 @@ large disagreements" from "salt-and-pepper speckle."
 | revB | reviewer B (alphabetically second) |
 | patch_id | patch label within this cell and reviewer pair (1-based) |
 | pixels | number of conflict pixels in the patch |
-| area_ha | pixels x 0.01 ha |
+| area_ha | pixels x {pix_ha:g} ha |
 """
     with open(os.path.join(OUT, "COLUMNS.md"), "w") as fh:
         fh.write(txt)
@@ -122,6 +123,8 @@ def main():
     change_arr = np.zeros(256, dtype=bool); change_arr[CHANGE] = True
 
     pairs = find_pairs()
+    # pooled pixel counts -> ha needs one pixel size across every raster in the run
+    pix_ha = SC.uniform_pixel_area_m2([f for revs in pairs.values() for _, f in revs]) / SC.M2_PER_HA
     print(f"double-interpreted cells (pairs, first two reviewers): {len(pairs)}")
 
     long_rows, patch_rows = [], []
@@ -165,7 +168,7 @@ def main():
             long_rows.append(dict(
                 grid=gid, sample=samp, target=tgt, revA=revA, revB=revB,
                 A_class=names[ca], B_class=names[cb], class_pair=f"{names[ca]}->{names[cb]}",
-                pixels=cnt, area_ha=round(cnt * PIX_HA, 3)))
+                pixels=cnt, area_ha=round(cnt * pix_ha, 3)))
 
         # connected-component patches of the conflict mask (8-connectivity)
         lab, n = ndimage.label(conflict, structure=STRUCT)
@@ -173,7 +176,7 @@ def main():
             areas = np.bincount(lab.ravel())[1:]
             for k, ar in enumerate(areas, 1):
                 patch_rows.append(dict(grid=gid, revA=revA, revB=revB, patch_id=k,
-                                       pixels=int(ar), area_ha=round(int(ar) * PIX_HA, 3)))
+                                       pixels=int(ar), area_ha=round(int(ar) * pix_ha, 3)))
 
     # long-format pixel table
     long_df = pd.DataFrame(long_rows)
@@ -184,7 +187,7 @@ def main():
     for (ca, cb), cnt in directed.items():
         dir_rows.append(dict(A_class=names[ca], B_class=names[cb],
                              class_pair=f"{names[ca]}->{names[cb]}",
-                             pixels=cnt, area_ha=round(cnt * PIX_HA, 3)))
+                             pixels=cnt, area_ha=round(cnt * pix_ha, 3)))
     sym = defaultdict(int)
     for (ca, cb), cnt in directed.items():
         sym[frozenset((ca, cb))] += cnt
@@ -192,7 +195,7 @@ def main():
         c = sorted(key)
         dir_rows.append(dict(A_class=names[c[0]], B_class=names[c[1]],
                              class_pair=f"{names[c[0]]}<->{names[c[1]]} (symmetrized)",
-                             pixels=cnt, area_ha=round(cnt * PIX_HA, 3)))
+                             pixels=cnt, area_ha=round(cnt * pix_ha, 3)))
     pd.DataFrame(sorted(dir_rows, key=lambda d: -d["pixels"])).to_csv(
         os.path.join(OUT, "ordered_pairs.csv"), index=False)
 
@@ -200,7 +203,7 @@ def main():
     patch_df = pd.DataFrame(patch_rows)
     patch_df.to_csv(os.path.join(OUT, "change_change_patches.csv"), index=False)
 
-    write_data_dictionary(len(long_df), len(patch_df))
+    write_data_dictionary(len(long_df), len(patch_df), pix_ha)
 
     # summary
     frac_dis = tot_conflict / tot_disagree if tot_disagree else float("nan")
@@ -216,16 +219,16 @@ def main():
         f"double-interpreted cells (pairs): {len(pairs)}",
         f"cells with at least one conflict: {n_cells_with_conflict}",
         "",
-        f"total conflict pixels: {tot_conflict:,}  ({tot_conflict * PIX_HA:,.1f} ha)",
+        f"total conflict pixels: {tot_conflict:,}  ({tot_conflict * pix_ha:,.1f} ha)",
         f"  as a fraction of all disagreement pixels ({tot_disagree:,}): {frac_dis:.4%}",
         f"  as a fraction of all change-labeled pixels ({tot_changelab:,}): {frac_chg:.4%}",
         "",
         f"Unknown-vs-change pixels (reported separately, NOT counted as conflicts): "
-        f"{tot_unknown:,}  ({tot_unknown * PIX_HA:,.1f} ha)",
+        f"{tot_unknown:,}  ({tot_unknown * pix_ha:,.1f} ha)",
         "",
         f"connected-component patches (8-connectivity): {p_n}",
-        f"  median patch area: {p_med * PIX_HA:.3f} ha ({int(p_med) if p_n else 0} px)",
-        f"  max patch area:    {p_max * PIX_HA:.3f} ha ({int(p_max) if p_n else 0} px)",
+        f"  median patch area: {p_med * pix_ha:.3f} ha ({int(p_med) if p_n else 0} px)",
+        f"  max patch area:    {p_max * pix_ha:.3f} ha ({int(p_max) if p_n else 0} px)",
         "",
         "convention: reviewer A/B ordering is alphabetical and arbitrary, so directed pair",
         "counts (A_class->B_class) carry no meaning on their own; the symmetrized counts in",

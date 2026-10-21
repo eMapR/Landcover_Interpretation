@@ -24,9 +24,10 @@ import re
 from collections import defaultdict
 
 import pandas as pd
+import sensor_config as SC  # RF_DIR, out_path (LCI_RF_DIR / LCI_OUT_DIR)
 
-RF_DIR = "data/raw/rf_class_maps"
-OUT_DIR = "exports/gee"
+RF_DIR = SC.RF_DIR
+OUT_DIR = SC.out_path("exports/gee")
 CSV_PATH = os.path.join(OUT_DIR, "interpreted_cells_by_bracket.csv")
 NOTE_PATH = os.path.join(OUT_DIR, "interpreted_cells_by_bracket_notes.md")
 

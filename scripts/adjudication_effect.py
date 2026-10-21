@@ -24,11 +24,12 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import rasterio
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RF_DIR = os.path.join(ROOT, "data/raw/rf_class_maps")
-OUT = os.path.join(ROOT, "reports/adjudication_effect")
-NAME_RE = re.compile(r"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)_opt_(\d{4}_\d{4})", re.I)
+RF_DIR = os.path.join(ROOT, SC.RF_DIR)
+OUT = SC.out_path("reports/adjudication_effect", ROOT)
+NAME_RE = re.compile(rf"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)_opt_(\d{{4}}_\d{{4}})", re.I)
 
 leg = pd.read_csv(os.path.join(ROOT, "data/reference/label_lookup.csv"))
 NAMES = {int(r.code): r.display_name for r in leg.itertuples()}
@@ -57,7 +58,7 @@ def read(path):
 
 def load_cells():
     cells = defaultdict(dict)
-    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True)):
+    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True)):
         m = NAME_RE.search(os.path.basename(f))
         if m:
             cells[(m.group(2).zfill(5), m.group(3), m.group(4))][m.group(1).lower()] = f

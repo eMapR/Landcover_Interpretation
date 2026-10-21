@@ -28,12 +28,13 @@ import numpy as np
 import rasterio
 from matplotlib.colors import ListedColormap, to_rgb
 from matplotlib.patches import Patch, Rectangle
+import sensor_config as SC  # RF_DIR, out_path (LCI_RF_DIR / LCI_OUT_DIR)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRED_DIR = f"{ROOT}/data/raw/transfer_predictions"
 SPEC_DIR = f"{ROOT}/data/raw/spectral_transferability_10class_percell"
-RF_MAP_DIR = f"{ROOT}/data/raw/rf_class_maps"
-OUT = f"{ROOT}/manuscript_formatting/figures"
+RF_MAP_DIR = os.path.join(ROOT, SC.RF_DIR)
+OUT = SC.out_path("manuscript_formatting/figures", ROOT)
 CROP_CELL = "31320"
 BRACKET = "2018_2020"
 VBAND = {"v2": 1, "v3": 2, "v4": 3, "v5": 4, "v6": 5}      # transfer_predictions band order

@@ -36,6 +36,7 @@ import rasterio
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreted_vs_model as C  # stitch / crosswalk / confusion / metrics
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = "reports/model_comparison"
 METRICS = ["overall_accuracy", "macro_f1", "mean_iou", "kappa"]
@@ -51,7 +52,7 @@ def main():
     args = ap.parse_args()
 
     rf2common, names, colors = C.load_mappings()
-    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", SC.RF_GLOB), recursive=True))
     suffix = ""
     if args.targets:
         keep = set(args.targets)

@@ -44,6 +44,7 @@ import rasterio
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreted_vs_model as C
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = "reports/window_sampling_by_approach/Case_D_window_sampling"
 WS = [3, 5, 7, 9]
@@ -78,7 +79,7 @@ def per_class_props(ref, mdl, valid, W, n=N):
 
 def main():
     rf2common, names, colors = C.load_mappings()
-    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", SC.RF_GLOB), recursive=True))
     cells, ndup = C.dedupe_cells(cells, SEED)
     print(f"de-duplicated: {ndup} location(s); {len(cells)} cells (all target years, seed {SEED})")
     os.makedirs(OUT, exist_ok=True)

@@ -19,9 +19,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgb
 from matplotlib.patches import Patch, Rectangle
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = f"{ROOT}/reports/beaver_examples"
+OUT = SC.out_path("reports/beaver_examples", ROOT)
 ALREADY_SHOWN = ("10333", "41")                            # grid, sample already rendered separately
 CONN = np.ones((3, 3), int)                                # 8-connectivity
 NAME = {1: "Harvest", 2: "Development", 3: "Forest", 4: "Urban", 5: "Water", 6: "Agriculture",
@@ -53,6 +54,7 @@ def largest_beaver_patch(a):
 def render(path, rev, grid, samp, tgt):
     with rasterio.open(path) as s:
         a = s.read(1)
+        pix_ha = SC.pixel_area_m2(s.transform, s.crs) / SC.M2_PER_HA
     _, patch = largest_beaver_patch(a)
     ref10 = bmc._REF_LUT[np.where((a >= 0) & (a <= 62), a, 0)]
     img = CLUT[ref10]
@@ -76,7 +78,7 @@ def render(path, rev, grid, samp, tgt):
     zr0, zr1, zc0, zc1 = max(r0 - z, 0), min(r1 + z, H), max(c0 - z, 0), min(c1 + z, W)
     ax1.imshow(img[zr0:zr1, zc0:zc1], interpolation="nearest")
     ax1.contour(patch[zr0:zr1, zc0:zc1].astype(float), levels=[0.5], colors="black", linewidths=1.8)
-    ax1.set_title(f"Zoom on the largest beaver patch\n{npx} px (~{npx * 0.01:.1f} ha)", fontsize=11)
+    ax1.set_title(f"Zoom on the largest beaver patch\n{npx} px (~{npx * pix_ha:.1f} ha)", fontsize=11)
     ax1.set_xticks([]); ax1.set_yticks([])
 
     present = sorted({int(c) for c in np.unique(ref10) if c > 0})
@@ -88,14 +90,14 @@ def render(path, rev, grid, samp, tgt):
     out = f"{OUT}/beaver_example_{rev}_cell{grid}_sample{samp}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    return out, npx
+    return out, npx, pix_ha
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
     # per reviewer: (max_patch_px, grid, sample, target, path)
     best = {}
-    for f in sorted(glob.glob(f"{ROOT}/data/raw/rf_class_maps/**/*Sentinel-2*.tif", recursive=True)):
+    for f in sorted(glob.glob(os.path.join(ROOT, SC.RF_DIR, "**", SC.RF_GLOB), recursive=True)):
         m = re.search(r"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_.*target_(\d+)", os.path.basename(f), re.I)
         if not m:
             continue
@@ -110,9 +112,9 @@ def main():
     print("largest beaver patch per reviewer (excluding the already-shown cell):")
     for rev in sorted(best):
         mx, grid, samp, tgt, f = best[rev]
-        out, npx = render(f, rev, grid, samp, tgt)
+        out, npx, pix_ha = render(f, rev, grid, samp, tgt)
         print(f"  {rev:<8} sample {samp:>4} grid {grid:>6} target {tgt}  patch {npx} px "
-              f"(~{npx*0.01:.1f} ha)  -> {os.path.basename(out)}")
+              f"(~{npx*pix_ha:.1f} ha)  -> {os.path.basename(out)}")
 
 
 if __name__ == "__main__":

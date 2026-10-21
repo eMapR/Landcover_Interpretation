@@ -49,11 +49,12 @@ from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreted_vs_model as C  # reuse stitch/crosswalk/dedup helpers
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 warnings.filterwarnings("ignore")
 
 OUT = "reports/spatial_structure"
-PIX_HA = 0.01               # 10 m pixel = 100 m^2 = 0.01 ha
+PIX_HA = None               # ha per pixel, set in main() from the reference rasters' transforms
 STRUCT = np.ones((3, 3), int)  # 8-connectivity
 PRED_BAND = {"v2": 1, "v3": 2, "v4": 3, "v5": 4, "v6": 5}   # band order in pred_<bracket>_cell*.tif
 
@@ -182,14 +183,14 @@ def main():
     ap.add_argument("--out", default=None, help="output folder (default reports/spatial_structure)")
     args = ap.parse_args()
 
-    global OUT
+    global OUT, PIX_HA
     if args.out:
         OUT = args.out
 
     rf2common, names, colors = C.load_mappings()
     classes = sorted(names)  # common codes 1..10
 
-    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True))
+    cells = sorted(glob.glob(os.path.join(C.RF_DIR, "**", SC.RF_GLOB), recursive=True))
     if args.targets:
         keep = set(args.targets)
         cells = [c for c in cells if C.target_year(c) in keep]
@@ -208,6 +209,8 @@ def main():
     map_src = (f"temporally-matched per-bracket predictions ({args.preds})" if args.preds
                else "static v2-v6 mosaics (single 2018/2020 classification)")
     print(f"cells: {len(cells)}   sources: interpreted + {' '.join(args.versions)}")
+    # model fields are measured on the cell footprints, so the cells' pixel size applies to all sources
+    PIX_HA = SC.uniform_pixel_area_m2(cells) / SC.M2_PER_HA
 
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "reference.txt"), "w") as fh:

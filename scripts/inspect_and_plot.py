@@ -30,12 +30,13 @@ import warnings
 import numpy as np
 import pandas as pd
 import rasterio
+import sensor_config as SC  # RF_DIR, out_path (LCI_RF_DIR / LCI_OUT_DIR)
 
 warnings.filterwarnings("ignore")
 
-RASTER_DIR = "data/raw/rf_class_maps"
+RASTER_DIR = SC.RF_DIR
 LEGEND_CSV = "data/reference/label_lookup.csv"
-OUT_DIR = "outputs"
+OUT_DIR = SC.out_path("outputs")
 
 
 def load_legend(path=LEGEND_CSV):

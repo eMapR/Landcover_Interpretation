@@ -38,13 +38,14 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import rasterio
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 warnings.filterwarnings("ignore")
 
-RF_DIR = "data/raw/rf_class_maps"
+RF_DIR = SC.RF_DIR
 RF_LEGEND = "data/reference/label_lookup.csv"
-OUT_DIR = "outputs/interpreter_agreement"
-NAME_RE = re.compile(r"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_Sentinel-2_target_(\d+)", re.I)
+OUT_DIR = SC.out_path("outputs/interpreter_agreement")
+NAME_RE = re.compile(rf"reviewer_([a-z]+)_grid_(\d+)_sample_(\d+)_sensor_{SC.SENSOR}_target_(\d+)", re.I)
 
 
 def load_legend():
@@ -58,7 +59,7 @@ def load_legend():
 def find_pairs():
     """Return {(grid,sample,target): [(reviewer, path), ...]} for multi-reviewer cells."""
     groups = defaultdict(list)
-    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", "rf_class*Sentinel-2*.tif"), recursive=True)):
+    for f in sorted(glob.glob(os.path.join(RF_DIR, "**", SC.RF_GLOB), recursive=True)):
         m = NAME_RE.search(os.path.basename(f))
         if m:
             groups[(m.group(2), m.group(3), m.group(4))].append((m.group(1).lower(), f))
