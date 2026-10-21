@@ -51,10 +51,18 @@ def largest_beaver_patch(a):
     return int(sizes.max()), (lab == (int(np.argmax(sizes)) + 1))
 
 
+def _overlaps(fig, artists, box):
+    """True if any artist's rendered extent intersects the box patch's extent (display coords)."""
+    r = fig.canvas.get_renderer()
+    bb = box.get_window_extent(r)
+    return any(a.get_window_extent(r).overlaps(bb) for a in artists)
+
+
 def render(path, rev, grid, samp, tgt):
     with rasterio.open(path) as s:
         a = s.read(1)
         pix_ha = SC.pixel_area_m2(s.transform, s.crs) / SC.M2_PER_HA
+        res = abs(s.transform.a)                            # m per pixel; figure sizes below set in m
     _, patch = largest_beaver_patch(a)
     ref10 = bmc._REF_LUT[np.where((a >= 0) & (a <= 62), a, 0)]
     img = CLUT[ref10]
@@ -65,16 +73,19 @@ def render(path, rev, grid, samp, tgt):
 
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 6))
     ax0.imshow(img, interpolation="nearest")
-    pad = 6
-    ax0.add_patch(Rectangle((c0 - pad, r0 - pad), (c1 - c0) + 2 * pad, (r1 - r0) + 2 * pad,
-                            fill=False, edgecolor="black", lw=2))
+    pad = round(60 / res)
+    box = ax0.add_patch(Rectangle((c0 - pad, r0 - pad), (c1 - c0) + 2 * pad, (r1 - r0) + 2 * pad,
+                                  fill=False, edgecolor="black", lw=2))
     ax0.set_title(f"Interpreted cell {grid} (sample {samp}, {rev}, {tgt})\n"
                   "black box = largest beaver patch", fontsize=11)
     ax0.set_xticks([]); ax0.set_yticks([])
-    ax0.add_patch(Rectangle((10, H - 18), 100, 5, facecolor="black", edgecolor="white", lw=0.5))
-    ax0.text(60, H - 22, "1 km", ha="center", va="bottom", fontsize=8)
+    bar_px, bar_x0 = 1000 / res, round(100 / res)           # 1 km scale bar
+    bar = ax0.add_patch(Rectangle((bar_x0, H - round(180 / res)), bar_px, max(1, round(50 / res)),
+                                  facecolor="black", edgecolor="white", lw=0.5))
+    lbl = ax0.text(bar_x0 + bar_px / 2, H - round(220 / res), "1 km", ha="center", va="bottom",
+                   fontsize=8)
 
-    z = 45
+    z = round(450 / res)
     zr0, zr1, zc0, zc1 = max(r0 - z, 0), min(r1 + z, H), max(c0 - z, 0), min(c1 + z, W)
     ax1.imshow(img[zr0:zr1, zc0:zc1], interpolation="nearest")
     ax1.contour(patch[zr0:zr1, zc0:zc1].astype(float), levels=[0.5], colors="black", linewidths=1.8)
@@ -87,6 +98,11 @@ def render(path, rev, grid, samp, tgt):
     fig.legend(handles=handles, loc="lower center", ncol=min(len(handles), 5), fontsize=8,
                frameon=False, bbox_to_anchor=(0.5, -0.04))
     fig.tight_layout(rect=[0, 0.06, 1, 1])
+    if _overlaps(fig, (bar, lbl), box):                     # patch box under the bar: move it bottom-right
+        bar.set_x(W - 1 - bar_x0 - bar_px)
+        lbl.set_x(W - 1 - bar_x0 - bar_px / 2)
+        if _overlaps(fig, (bar, lbl), box):
+            print(f"  WARN: scale bar overlaps the patch box in both corners ({rev} cell {grid})")
     out = f"{OUT}/beaver_example_{rev}_cell{grid}_sample{samp}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)

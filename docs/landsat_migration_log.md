@@ -27,3 +27,28 @@ Open items:
   Do not run them with LCI_RF_DIR set until they use out_path, or they will overwrite reports/.
 - Scripts that need data/raw/model_maps/ were only checked for clean imports and identical
   file patterns (model maps not on Islay); full output comparison still to do.
+
+## 2026-10-21: beaver_example_figure.py Scale Bar, Zoom, and Overlap Fix
+
+Change: the scale bar (length, height, position), patch-box padding, and zoom margin are now set
+in metres and converted with each raster's resolution, instead of fixed pixel counts that assumed
+10 m. At 30 m the old bar was 100 px (3 km) but labelled "1 km", and the zoom margin (45 px)
+covered nearly the whole 113-px cell. The 1 km scale bar now moves to the bottom-right when its
+bar or label would overlap the padded patch box (prints a WARN if both corners collide).
+
+- 10 m Sentinel-2 (variables unset, outputs to scratch): bekka 36142 and mina 13691 are
+  byte-identical to the previous version. peter 07373 changed on purpose: its patch is in the
+  bottom-left corner, so the old bar ran through the patch box. The bar is now bottom-right.
+- 30 m Landsat: ran successfully, outputs in reports_landsat/reports/beaver_examples/
+  (bekka 50601: 81 px, ~7.3 ha; myscon 07373: 20 px, ~1.8 ha; 0.09 ha per pixel). Bar is
+  1000/30 = 33.3 px, matching its "1 km" label; zoom margin is 15 px. Both PNGs inspected:
+  no text or bar overlaps the patch, the box, or the panel edge.
+
+Landsat run command:
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs \
+    LCI_OUT_DIR=reports_landsat python scripts/beaver_example_figure.py
+
+Open items:
+- Grid 10333 sample 41 is skipped (ALREADY_SHOWN, from the Sentinel-2 work); decide whether to
+  keep skipping it for Landsat.
