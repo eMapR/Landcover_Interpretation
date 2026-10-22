@@ -132,3 +132,18 @@ Open items:
   runs last overwrites the other's figure under the same LCI_OUT_DIR.
 - beaver_example_figure.py still has only the bottom-right fallback. None of its current figures
   need more, but it would warn on a cell like harvest 37243.
+
+## 2026-10-22: Scripts Passing on Both Sensors Without Code Changes
+
+- interpreter_change_change_conflicts.py: Sentinel-2 output byte-identical to the committed
+  reports/; Landsat 29 pairs, 45 conflict px (4.0 ha) at 0.09 ha/px. Cosmetic: the
+  "a few thousand pixels" note (printed when < 5000 px) is inaccurate for Landsat.
+- inspect_and_plot.py (--stats-all and --montage 9, run separately; the script does one task
+  per run): Sentinel-2 class distribution identical to an earlier laptop run (272 rasters);
+  Landsat read all 391 rasters, codes 13/40/50/62 present, Fire only in 1 raster (315 px).
+  Montages look correct for both sensors.
+
+Open items:
+- Urban (code 0) is present in nearly every raster for both sensors (Sentinel-2 271/272,
+  Landsat 388/391) and is about twice as common in Landsat (5.9% vs 3.0%). Check whether
+  all-zero edge rows/columns are padding in the Sentinel-2 rasters as well as Landsat.
