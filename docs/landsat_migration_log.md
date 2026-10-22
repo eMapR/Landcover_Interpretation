@@ -94,3 +94,41 @@ is wider than the figure.
   figures. The legend strip of all 10 was inspected visually: the legend is clear of the maps,
   the outlines, and the caption.
 - Python environment for these runs: /vol/v1/bekka/venvs/lci (matplotlib 3.11.2).
+
+## 2026-10-22: change_class_examples.py Scale Bar, Zoom, and Overlap Fix
+
+Change: the same 10 m assumptions that beaver_example_figure.py had (fixed 2026-10-21) are now
+gone from change_class_examples.py. The 1 km scale bar was a fixed 100 px, which is right at 10 m
+but almost the whole 113-px cell at 30 m. The bar length, bar height and offset, the patch-box
+padding (6 px = 60 m) and the zoom margin (45 px = 450 m) are now set in metres and converted with
+the raster's pixel size (`abs(transform.a)`). The script reuses `_overlaps` from
+beaver_example_figure.py. If the bar or its label would overlap the padded patch box, the bar
+moves to the bottom-right corner, as in the beaver script. If that corner is also blocked, it
+tries top-right and then top-left, with the label below the bar. It prints which corner it used,
+or a WARN if every corner collides.
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel, all four classes): a fresh run of the
+  unchanged script was byte-identical to the existing check_sentinel PNGs and was saved as the
+  "before" copy. After the fix, 16 of 20 PNGs are byte-identical. The other 4 changed on purpose,
+  because the old bar crossed the patch box: harvest peter 48800, development robert 01993,
+  insect_disease peter 51183, and beaver peter 07373. In each of these the bar is now
+  bottom-right. Image sizes are unchanged, and the only pixel differences are in the bar and
+  "1 km" label rows, at the old bottom-left spot and the new bottom-right spot. All four were
+  inspected: the bar no longer touches the box.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat, all four classes): every cell is 113 x 113 px at 30 m. The bar is
+  1000/30 = 33.3 px, which matches its "1 km" label. Box padding is 2 px and the zoom margin is
+  15 px. The zoom panels now show 5-68% of the cell; with the old 45 px margin they showed most
+  of it. Bar moves: insect_disease bekka 31832 and beaver myscon 07373 went bottom-right.
+  harvest bekka 37243 went top-right, because its 130 ha patch box reaches both bottom corners
+  (the first version, with only the bottom-right fallback, warned and the bar crossed the box).
+  No WARNs. All 20 PNGs were inspected: no bar or label overlaps the patch box, a box edge, or
+  the panel edge.
+- Python environment: /vol/v1/bekka/venvs/lci.
+
+Open items:
+- With --class beaver, this script writes to reports/beaver_examples/ with the same file names
+  as beaver_example_figure.py (for example beaver_example_bekka_cell36142_sample567.png). Whichever
+  runs last overwrites the other's figure under the same LCI_OUT_DIR.
+- beaver_example_figure.py still has only the bottom-right fallback. None of its current figures
+  need more, but it would warn on a cell like harvest 37243.

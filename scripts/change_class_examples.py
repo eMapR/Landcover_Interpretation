@@ -41,6 +41,7 @@ def _load(n, p):
 bmc = _load("bmc", "build_transfer_confusion.py")
 C = _load("C", "compare_interpreted_vs_model.py")
 C10 = C.load_mappings()[2]
+B = _load("B", "beaver_example_figure.py")                  # _overlaps: scale bar vs patch box
 CLUT = np.ones((11, 4))                                     # 0 = excluded -> white
 for c, col in C10.items():
     CLUT[c] = to_rgb(col) + (1.0,)
@@ -59,6 +60,7 @@ def render(path, ckit, disp, rev, grid, samp, tgt, out_dir):
     with rasterio.open(path) as s:
         a = s.read(1)
         pix_ha = SC.pixel_area_m2(s.transform, s.crs) / SC.M2_PER_HA
+        res = abs(s.transform.a)                            # m per pixel; figure sizes below set in m
     _, patch = largest_patch(a, ckit)
     ref10 = bmc._REF_LUT[np.where((a >= 0) & (a <= 62), a, 0)]
     img = CLUT[ref10]
@@ -69,16 +71,19 @@ def render(path, ckit, disp, rev, grid, samp, tgt, out_dir):
 
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 6))
     ax0.imshow(img, interpolation="nearest")
-    pad = 6
-    ax0.add_patch(Rectangle((c0 - pad, r0 - pad), (c1 - c0) + 2 * pad, (r1 - r0) + 2 * pad,
-                            fill=False, edgecolor="black", lw=2))
+    pad = round(60 / res)
+    box = ax0.add_patch(Rectangle((c0 - pad, r0 - pad), (c1 - c0) + 2 * pad, (r1 - r0) + 2 * pad,
+                                  fill=False, edgecolor="black", lw=2))
     ax0.set_title(f"Interpreted cell {grid} (sample {samp}, {rev}, {tgt})\n"
                   f"black box = largest {disp} patch", fontsize=11)
     ax0.set_xticks([]); ax0.set_yticks([])
-    ax0.add_patch(Rectangle((10, H - 18), 100, 5, facecolor="black", edgecolor="white", lw=0.5))
-    ax0.text(60, H - 22, "1 km", ha="center", va="bottom", fontsize=8)
+    bar_px, bar_x0 = 1000 / res, round(100 / res)           # 1 km scale bar
+    bar = ax0.add_patch(Rectangle((bar_x0, H - round(180 / res)), bar_px, max(1, round(50 / res)),
+                                  facecolor="black", edgecolor="white", lw=0.5))
+    lbl = ax0.text(bar_x0 + bar_px / 2, H - round(220 / res), "1 km", ha="center", va="bottom",
+                   fontsize=8)
 
-    z = 45
+    z = round(450 / res)
     zr0, zr1, zc0, zc1 = max(r0 - z, 0), min(r1 + z, H), max(c0 - z, 0), min(c1 + z, W)
     ax1.imshow(img[zr0:zr1, zc0:zc1], interpolation="nearest")
     ax1.contour(patch[zr0:zr1, zc0:zc1].astype(float), levels=[0.5], colors="black", linewidths=1.8)
@@ -91,6 +96,20 @@ def render(path, ckit, disp, rev, grid, samp, tgt, out_dir):
     fig.legend(handles=handles, loc="lower center", ncol=min(len(handles), 5), fontsize=8,
                frameon=False, bbox_to_anchor=(0.5, -0.04))
     fig.tight_layout(rect=[0, 0.06, 1, 1])
+    # patch box under the bar: try the other corners; at the top the label goes below the bar
+    xr = W - 1 - bar_x0 - bar_px
+    top = (round(130 / res), round(220 / res), "top")
+    moved = None
+    for where, x, (y, ly, va) in (("bottom-right", xr, (bar.get_y(), lbl.get_position()[1], "bottom")),
+                                  ("top-right", xr, top), ("top-left", bar_x0, top)):
+        if not B._overlaps(fig, (bar, lbl), box):
+            break
+        bar.set_xy((x, y)); lbl.set_position((x + bar_px / 2, ly)); lbl.set_va(va)
+        moved = where
+    if B._overlaps(fig, (bar, lbl), box):
+        print(f"  WARN: scale bar overlaps the patch box in every corner ({rev} cell {grid})")
+    elif moved:
+        print(f"  scale bar moved {moved} ({rev} cell {grid})")
     tag = disp.lower().replace("/", "_")
     out = f"{out_dir}/{tag}_example_{rev}_cell{grid}_sample{samp}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
