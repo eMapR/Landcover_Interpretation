@@ -69,8 +69,28 @@ pixels. It now uses the raster's pixel width (`abs(transform.a)` times the CRS l
 - No other 10 m assumptions were found: the figure has no scale bar, and hectares in the title
   come from the CSV, which uses SC.uniform_pixel_area_m2.
 
-Open item (affects both sensors, not changed here so the Sentinel-2 output stays identical): the
-legend (`bbox_to_anchor=(0.5, 0.20)`) is drawn over the bottom strip of both map panels, so it
-hides part of the map and some outlines. This breaks the no-overlap figure rule. It needs the
-legend moved below the axes, for example by reserving space with tight_layout and anchoring the
-legend under the panels.
+Open item (fixed 2026-10-22, see below): the legend (`bbox_to_anchor=(0.5, 0.20)`) was drawn
+over the bottom strip of both map panels, hiding part of the map and some outlines.
+
+## 2026-10-22: plot_change_stable_examples.py Legend Overlap Fixed
+
+Change: the legend now sits in its own strip between the maps and the caption, so it no longer
+covers the map panels, the outlines, or any text. The script measures the legend height with the
+renderer, makes the figure taller by that height plus a 0.15 in gap above and below (rounded up to
+whole 150 dpi pixels), and anchors the legend 0.15 in under the drawn map bottoms. The maps, title,
+and caption keep the same size and spacing as before. A fit-check prints the legend, map, and
+caption positions for each figure and a WARN if the legend overlaps a map column or the caption, or
+is wider than the figure.
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel): the CSV/text outputs are byte-identical. The
+  10 example PNGs changed only in legend position. Pixel comparison with the copy saved before the
+  fix: the title band and caption are pixel-identical (the caption is shifted down by the new
+  strip, 76 or 102 px). Above the old legend, the map band differs only by 1-2/255 anti-aliasing
+  on contour-line edges, which is not visible. The only real change is the old legend band: the
+  map pixels it used to hide are now shown, and the legend is drawn below the maps. Figures are
+  76 or 102 px taller (one or two legend rows).
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): the CSV/text outputs are unchanged. No WARNs in any of the 10
+  figures. The legend strip of all 10 was inspected visually: the legend is clear of the maps,
+  the outlines, and the caption.
+- Python environment for these runs: /vol/v1/bekka/venvs/lci (matplotlib 3.11.2).
