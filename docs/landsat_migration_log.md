@@ -147,3 +147,14 @@ Open items:
 - Urban (code 0) is present in nearly every raster for both sensors (Sentinel-2 271/272,
   Landsat 388/391) and is about twice as common in Landsat (5.9% vs 3.0%). Check whether
   all-zero edge rows/columns are padding in the Sentinel-2 rasters as well as Landsat.
+
+## 2026-10-22: compare_interpreters.py Passes on Both Sensors
+
+- No code changes needed. Sentinel-2 (72 pairs) and Landsat (29 pairs) both ran without
+  errors; agreement metrics in per_pair_metrics.csv are in range and the figures have no
+  overlapping text. Outputs go under outputs/, which is gitignored, so there is no committed
+  copy to diff against; the edit itself was verified byte-identical on Sentinel-2 earlier.
+
+All seven scripts that need only the interpreter rasters now run on both sensors:
+interpreter_change_stable_conflicts, interpreter_change_change_conflicts, compare_interpreters,
+plot_change_stable_examples, change_class_examples, beaver_example_figure, inspect_and_plot.
