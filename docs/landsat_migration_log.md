@@ -52,3 +52,25 @@ Landsat run command:
 Open items:
 - Grid 10333 sample 41 is skipped (ALREADY_SHOWN, from the Sentinel-2 work); decide whether to
   keep skipping it for Landsat.
+
+## 2026-10-22: plot_change_stable_examples.py Cell Width in the Title
+
+Change: the cell width in each figure title was `a.shape[1] * 10 / 1000` km, which assumed 10 m
+pixels. It now uses the raster's pixel width (`abs(transform.a)` times the CRS linear unit). At
+30 m the old title said 1.1 km for a 113-px Landsat cell; it now says 3.4 km (113 x 30 m).
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel): reran interpreter_change_stable_conflicts.py
+  and plot_change_stable_examples.py. All 10 example PNGs and all CSV/text outputs are
+  byte-identical to the copy saved before the fix.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): the CSV/text outputs are unchanged, and only the 10 PNGs changed.
+  Every Landsat rf_class raster is 113 px wide at 30 m, so all 10 titles now say 3.4 km
+  (checked visually on rank01 and rank07).
+- No other 10 m assumptions were found: the figure has no scale bar, and hectares in the title
+  come from the CSV, which uses SC.uniform_pixel_area_m2.
+
+Open item (affects both sensors, not changed here so the Sentinel-2 output stays identical): the
+legend (`bbox_to_anchor=(0.5, 0.20)`) is drawn over the bottom strip of both map panels, so it
+hides part of the map and some outlines. This breaks the no-overlap figure rule. It needs the
+legend moved below the axes, for example by reserving space with tight_layout and anchoring the
+legend under the panels.

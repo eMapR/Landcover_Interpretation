@@ -84,6 +84,7 @@ def main():
             continue
         with rasterio.open(paths[row.revA]) as ds:
             a = ds.read(1)
+            px_m = abs(ds.transform.a) * ds.crs.linear_units_factor[1]   # pixel width in metres
         with rasterio.open(paths[row.revB]) as ds:
             b = ds.read(1)
         if a.shape != b.shape:
@@ -106,7 +107,7 @@ def main():
         handles.append(Patch(facecolor="none", edgecolor="black", label="disagreed area (outlined)"))
         fig.legend(handles=handles, loc="lower center", ncol=min(7, len(handles)), fontsize=8,
                    bbox_to_anchor=(0.5, 0.20))
-        km = a.shape[1] * 10 / 1000
+        km = a.shape[1] * px_m / 1000
         fig.suptitle(f"#{rank + 1}  cell {row.grid} ({km:.1f} km, target {row.target})  ·  "
                      f"{row.revA} vs {row.revB}  ·  outlined: {row.stable_class} vs "
                      f"{row.change_class}  ({row.area_ha:.0f} ha, one called stable, one called "
