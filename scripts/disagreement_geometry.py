@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Geometry of inter-interpreter disagreement, per DIRECTED class pair.
 
-On the 69 double-interpreted cells (no de-duplication — the replicates are the point),
+On every double-interpreted cell for the sensor (no de-duplication — the replicates are the point),
 for each ordered class pair (A, B) where reviewer_a said A and reviewer_b said B
 (direction kept, NOT symmetrized), build the binary disagreement mask per cell, run
 8-connected component labeling, and measure each patch:
 
-  area        pixel count (and hectares from the raster transform; 1 px = 0.01 ha at 10 m)
+  area        pixel count (hectares = pixels x pixel area from the raster transform)
   perimeter   4-connected boundary-edge count (a single pixel = 4; not a vertex trace)
   pa_ratio    perimeter / area
   shape_index P / (2*sqrt(pi*A)) — normalized against a circle of equal area, so it
@@ -21,7 +21,7 @@ themselves (a thin ribbon around a large agreed patch != a patch the size of the
 Traps handled:
   - edge-of-cell artifact: patches touching the cell border have truncated perimeters and
     biased shape; flagged via `touches_edge`, and summaries reported with and without them.
-  - thin ribbons: at 10 m a 1-2 px ribbon makes the discrete perimeter a poor length
+  - thin ribbons: a 1-2 px ribbon makes the discrete perimeter a poor length
     estimate and shape index unstable; the per-patch pixel width (2A/P) distribution is
     reported so we know how much sits at the resolution limit.
 
@@ -52,9 +52,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreters as CI  # find_pairs / load_legend
 import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
-OUT = "reports/interpreter_agreement/geometry"
+OUT = SC.out_path("reports/interpreter_agreement/geometry")
 STRUCT = np.ones((3, 3), int)      # 8-connectivity
-AREA_THRESH_HA = 0.1               # 0.1 ha = 10 px at 10 m
+AREA_THRESH_HA = 0.1               # fixed in ha, so its pixel count depends on the pixel size
 rng = np.random.default_rng(42)    # only used if any sampling is needed
 
 
@@ -111,6 +111,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
 
     rows = []
+    pix_areas = set()                                # m^2; pooled stats need one pixel size
     for (gid, samp, tgt), revs in sorted(pairs.items()):
         (ra, fA), (rb, fB) = revs[0], revs[1]      # alphabetical; direction fixed
         cell_id = f"{gid}_s{samp}_t{tgt}"
@@ -120,7 +121,9 @@ def main():
             b = s.read(1)
         if a.shape != b.shape:
             continue
-        pix_ha = SC.uniform_pixel_area_m2([fA, fB]) / SC.M2_PER_HA
+        pix_m2 = SC.uniform_pixel_area_m2([fA, fB])
+        pix_areas.add(pix_m2)
+        pix_ha = pix_m2 / SC.M2_PER_HA
         valid = np.isin(a, codes) & np.isin(b, codes)
 
         # disagreement: directed class pairs (A != B)
@@ -133,13 +136,17 @@ def main():
         for C in {int(x) for x in a[agr]}:
             rows += patch_rows((a == C) & (b == C), cell_id, ra, rb, C, C, "agreement", names, pix_ha)
 
+    if len(pix_areas) != 1:
+        raise ValueError(f"cells have different pixel areas: {sorted(pix_areas)} m^2")
+    res_m = float(np.sqrt(pix_areas.pop()))         # pixel side, for figure text
+
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(OUT, "patch_geometry.csv"), index=False)
     print(f"patches: {len(df)}  (disagreement {int((df.kind=='disagreement').sum())}, "
           f"agreement {int((df.kind=='agreement').sum())})")
 
     write_summaries(df, names)
-    make_plots(df, names, colors)
+    make_plots(df, names, colors, res_m)
     print(f"\noutputs -> {OUT}/")
 
 
@@ -224,7 +231,7 @@ def ecdf(a):
     return a, np.arange(1, a.size + 1) / a.size
 
 
-def make_plots(df, names, colors):
+def make_plots(df, names, colors, res_m):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -307,7 +314,7 @@ def make_plots(df, names, colors):
     _caption(fig, "Empirical cumulative distribution of disagreement-patch pixel width, computed "
                   "as twice the area over the perimeter, for all disagreement patches in blue and "
                   "for interior patches that do not touch the cell edge in red. The dashed "
-                  "vertical lines mark widths of 1 and 2 pixels, the resolution limit at 10 m "
+                  f"vertical lines mark widths of 1 and 2 pixels, the resolution limit at {res_m:g} m "
                   "where the discrete perimeter and shape index become unreliable. A large share "
                   "of mass at or below 2 pixels means much of the disagreement sits in thin "
                   "ribbons near the pixel resolution limit.")

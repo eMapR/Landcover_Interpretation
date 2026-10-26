@@ -158,3 +158,38 @@ Open items:
 All seven scripts that need only the interpreter rasters now run on both sensors:
 interpreter_change_stable_conflicts, interpreter_change_change_conflicts, compare_interpreters,
 plot_change_stable_examples, change_class_examples, beaver_example_figure, inspect_and_plot.
+
+## 2026-10-26: disagreement_geometry.py
+
+Changes:
+- Output folder now goes through SC.out_path. Before, it was a fixed
+  "reports/interpreter_agreement/geometry", so LCI_OUT_DIR was ignored and any run, including a
+  Landsat run, overwrote the committed reports/.
+- The width_ecdf.png caption said "the resolution limit at 10 m". It now uses the raster's pixel
+  side (square root of the pixel area), so it reads "10 m" on Sentinel-2 and "30 m" on Landsat.
+  The script now stops with an error if the cells have different pixel sizes.
+- Docstring and comments no longer say "69 cells", "1 px = 0.01 ha" or "0.1 ha = 10 px at 10 m";
+  pixel size is described in general terms. No thresholds changed.
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel): 72 pairs. All 6 outputs are byte-identical
+  before and after the caption/docstring edit. Against the committed reports/: the 3 CSVs are
+  byte-identical; area_ecdf_focus.png and shape_index_ecdf_focus.png are pixel-identical (only
+  the embedded matplotlib version differs, 3.11.0 vs 3.11.2); the committed width_ecdf.png was
+  later post-processed by annotate_figures.py (extra text panel), so it is not this script's
+  direct output. Nothing differs because of the newer data.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): 29 pairs, 29,301 patches (21,341 disagreement, 7,960 agreement),
+  0.09 ha per pixel on every row. No "10 m" or "0.01 ha" text in the CSVs or figures. All 3
+  figures inspected: no overlapping text. Development->Urban has only 1 patch, so its curve is
+  not drawn (curves need >= 3 patches) and that panel shows only Urban->Development (n=11).
+
+Open items (thresholds for advisor; not changed):
+- AREA_THRESH_HA = 0.1 ha (frac_area_under/over_0p1ha, console "<0.1ha"): 10 px at 10 m, about
+  1.1 px at 30 m. The smallest Landsat patch is 0.09 ha, so "< 0.1 ha" now means exactly the
+  single-pixel patches.
+- Width cut-offs of 1 and 2 px (frac_le_1px, frac_le_2px, frac_gt_2px and the dashed lines on
+  width_ecdf.png) are in pixels: 10/20 m on Sentinel-2, 30/60 m on Landsat.
+- width_ecdf.png x-axis limit of 8 px: 80 m vs 240 m. The Landsat curve is flat by ~3.5 px, so
+  nothing is cut off.
+- annotate_figures.py (separate script) still says "10 m each" in its width_ecdf.png text; it
+  would be wrong if run on the Landsat figures.
