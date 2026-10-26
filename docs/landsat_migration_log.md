@@ -233,3 +233,59 @@ Open items (not changed):
 3. For advisor: THRESH_HA = 0.1 ha (the lt_0.1ha / ge_0.1ha bins) is 10 px at 10 m but about
    1.1 px at 30 m. On Landsat, lt_0.1ha holds only the single-pixel patches (0.09 ha) and
    ge_0.1ha everything 2 px (0.18 ha) or larger.
+
+## 2026-10-26: reviewer_directional_asymmetry.py
+
+Changes:
+- OUT is now SC.out_path("reports/interpreter_agreement"); it was the hard-coded
+  "reports/interpreter_agreement", so LCI_OUT_DIR was ignored and a check run would have
+  overwritten the committed CSVs and heatmap. All 3 outputs are built from OUT.
+- Added os.makedirs(OUT, exist_ok=True) at the start of main(). Without LCI_OUT_DIR both
+  changes leave the output location as before.
+- Docstring made sensor-neutral: "all 69 double-interpreted pairs" -> "all double-interpreted
+  pairs of the selected sensor", and the Outputs line notes LCI_OUT_DIR. No thresholds changed.
+- The imported helpers (CI.load_legend, CI.find_pairs, CI.confusion) only read files.
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel): 72 pairs, 5 reviewers.
+  reviewer_class_overassignment.csv and reviewer_directed_classpairs.csv are byte-identical to
+  the committed reports/. reviewer_overassignment_heatmap.png is pixel-identical; only the
+  embedded matplotlib version differs (3.11.0 vs 3.11.2). Nothing differs because of the newer
+  data (the committed outputs already used 72 pairs; the old docstring's 69 was stale).
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): 29 pairs, 3 reviewers (bekka 24, myscon 23, robert 11 pairs),
+  0.09 ha per pixel from the raster transform. No "10 m", "10m" or "0.01 ha" text in the CSVs or
+  figure. Heatmap inspected: no overlapping text. Significant over-assignments: robert
+  Insect/Disease (+5.81) and myscon Unknown (+4.17), both on about 5 ha.
+- git status after each run: nothing under reports/, outputs/ or exports/ modified.
+
+Hard-coded values (for advisor; not changed):
+
+| Value | Where | 10 m | 30 m |
+|---|---|---|---|
+| self + partner < 50 px: class skipped for that reviewer | main(), class loop | 0.5 ha | 4.5 ha |
+| pair < 200 px: directed class pair skipped | main(), class-pair loop | 2 ha | 18 ha |
+| +1 px pseudo-count in log2((a + 1) / (b + 1)) | index, bootstrap, class pairs | 0.01 ha | 0.09 ha (pulls small classes harder toward 0) |
+
+Bootstrap count (2000), seed (42) and dpi (140) do not depend on resolution.
+
+Skipped by the minimum-pixel rules:
+
+| | Class rule (< 50 px) | Pair rule (< 200 px) |
+|---|---|---|
+| Sentinel-2 | 5 of 65 reviewer x class cells; all Fire (0 px), one per reviewer | 442 of 780 directed pairs skipped (206 with > 0 px); 338 kept (43%) |
+| Landsat | 4 of 39 cells: myscon Fire (0 px); robert Other (0 px), Unknown (31 px, ~2.8 ha), Development (23 px, ~2.1 ha) | 378 of 468 skipped (168 with > 0 px); 90 kept (19%) |
+
+On Landsat the class rule drops classes that do have disagreement, which never happens on
+Sentinel-2.
+
+Open items (not changed):
+1. Fire is missing from the Landsat heatmap: the column list in heatmap() is fixed and has no
+   "Fire", so the column is dropped silently although the CSV has values (bekka +8.30, robert
+   -8.30). The fix should show Fire only when it has data, so the Sentinel-2 figure (no Fire
+   pixels) stays unchanged.
+2. Reviewer letters are assigned alphabetically per sensor, so they mean different people on
+   the two figures (Landsat A/B/C = bekka/myscon/robert; on Sentinel-2 bekka is B and robert
+   is E). The code comment says they match reviewer_letter_key.csv (figure 3.5), which holds
+   only for Sentinel-2.
+3. Cells removed by the 50 px rule show as blank white with no explanation in the figure
+   (Landsat: robert Other, Development, Unknown).

@@ -2,9 +2,9 @@
 """Directional asymmetry of inter-interpreter disagreement — does a reviewer
 systematically over-assign a class relative to whoever they were compared with?
 
-Across all 69 double-interpreted pairs, for each pair the full directed confusion matrix
-(rows = reviewer A, cols = reviewer B; alphabetical A/B) is built in PIXELS (area, not
-patch count). Pooling per reviewer R and class C:
+Across all double-interpreted pairs of the selected sensor (sensor_config), for each pair
+the full directed confusion matrix (rows = reviewer A, cols = reviewer B; alphabetical A/B)
+is built in PIXELS (area, not patch count). Pooling per reviewer R and class C:
 
   claim_R[C]      = pixels where R said C and the partner said something else
   claim_partner[C]= pixels where the partner said C and R said something else
@@ -17,7 +17,7 @@ Uncertainty is a cluster (pair) bootstrap — the resampling unit is the pair, s
 A per-reviewer directed class-pair table shows WHICH boundary each leaning rides on
 (e.g. R says X where the partner says Y).
 
-Outputs (reports/interpreter_agreement/):
+Outputs (reports/interpreter_agreement/, under LCI_OUT_DIR when set):
   - reviewer_class_overassignment.csv   reviewer x class: index, 95% CI, area, significance
   - reviewer_directed_classpairs.csv    per reviewer: strongest directed class-pair leanings
   - reviewer_overassignment_heatmap.png  reviewer x class log2 index (significant marked)
@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreters as CI
 import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
-OUT = "reports/interpreter_agreement"
+OUT = SC.out_path("reports/interpreter_agreement")
 rng = np.random.default_rng(42)
 
 
@@ -80,6 +80,7 @@ def pool_claims(cms, reviewers, C):
 
 
 def main(boot=2000):
+    os.makedirs(OUT, exist_ok=True)
     order, names, cms, pix_ha = build_pair_cms()
     C = len(order)
     reviewers = sorted({r for A, B, _ in cms for r in (A, B)})
