@@ -42,11 +42,12 @@ from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare_interpreters as CI
+import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
-OUT = "reports/interpreter_agreement"
+OUT = SC.out_path("reports/interpreter_agreement")
 WINDOWS = [3, 5]
 N_NULL = 4
-MIN_DENOM_PX = 5000          # ~500 ha pooled; smaller classes flagged, not plotted
+MIN_DENOM_PX = 5000          # ~50 ha pooled at 10 m (~450 ha at 30 m); smaller classes flagged, not plotted
 rng_shift = np.random.default_rng(42)
 rng_boot = np.random.default_rng(42)
 
@@ -133,6 +134,7 @@ def pooled_delta_net(recs, idx, direction, window, k):
 
 
 def main(boot=2000):
+    os.makedirs(OUT, exist_ok=True)
     codes, names, _ = CI.load_legend()
     order = sorted(codes)
     recs = stack_pairs(order)

@@ -289,3 +289,65 @@ Open items (not changed):
    only for Sentinel-2.
 3. Cells removed by the 50 px rule show as blank white with no explanation in the figure
    (Landsat: robert Other, Development, Unknown).
+
+## 2026-10-26: spatial_tolerance.py
+
+This script was not part of the earlier sensor-agnostic edits. It already found its rasters
+through CI.find_pairs (LCI_SENSOR, LCI_RF_DIR) and uses no pixel area or metre text.
+
+Changes:
+- Added `import sensor_config as SC`.
+- OUT is now SC.out_path("reports/interpreter_agreement"); it was the hard-coded
+  "reports/interpreter_agreement", so LCI_OUT_DIR was ignored and a check run would have
+  overwritten the committed CSV and PNG. Both outputs are built from OUT.
+- Added os.makedirs(OUT, exist_ok=True) at the start of main(). Without LCI_OUT_DIR both
+  changes leave the output location as before.
+- MIN_DENOM_PX comment corrected from "~500 ha pooled" to "~50 ha pooled at 10 m (~450 ha at
+  30 m)"; the value (5000 px) is unchanged. Docstring and the silent shape-mismatch skip left
+  as they were.
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel): 72 pairs. spatial_tolerance_delta.csv is
+  byte-identical to the committed reports/. spatial_tolerance_delta.png is pixel-identical
+  (1522x1379); only the embedded matplotlib version differs (3.11.0 vs 3.11.2). The committed
+  PNG is the raw script output (no annotate_figures.py post-processing).
+- Seeding confirmed: the null shifts and the pair bootstrap each use default_rng(42); the rerun
+  reproduced every value, including all bootstrap CI bounds. Shifts drawn:
+  [(3,-5), (3,-5), (-5,5), (5,-4)] px on both sensors.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): 29 pairs (find_pairs also returns 29, so the shape check skipped
+  none). No "10 m", "0.01 ha" or km text in the CSV or figure. Figure inspected: no overlapping
+  text; each panel shows 6 of 13 legend classes (Urban, Water, Wetland, Grass/Shrub,
+  Agriculture, Forest), the rest removed by MIN_DENOM_PX.
+- git status after each run: nothing under reports/, outputs/ or exports/ modified.
+
+Hard-coded values (for advisor; not changed):
+
+| Value | Meaning | 10 m | 30 m |
+|---|---|---|---|
+| WINDOWS = [3, 5] | match tolerance of +/-1 / +/-2 px | +/-10 / +/-20 m | +/-30 / +/-60 m |
+| Null shifts, 3-5 px per axis | offset for the heterogeneity null | 30-50 m | 90-150 m |
+| N_NULL = 4 | shifted copies averaged for the null | same | same |
+| MIN_DENOM_PX = 5000 | minimum pooled class size to plot/print (CSV keeps all) | 50 ha | 450 ha |
+
+Bootstrap count (2000), seed (42) and dpi (140) do not depend on resolution.
+
+Classes left out by MIN_DENOM_PX (per direction):
+
+| | A->B | B->A |
+|---|---|---|
+| Sentinel-2 | 2: Unknown (3068 px), Beaver (3911) | 2: Unknown (2008), Development (2777) |
+| Landsat | 5: Unknown (60), Harvest (2864), Development (26), Fire (315), Beaver (74); Other and Insect/Disease have 0 px | 6: Unknown (109), Other (179), Harvest (2057), Development (73), Insect/Disease (108), Beaver (120); Fire has 0 px |
+
+Open items (not changed):
+1. MIN_DENOM_PX is in pixels, so the area cut is 9x larger on Landsat. Harvest is dropped on
+   Landsat at 2864 px (~258 ha), about five times the 50 ha that qualifies a class on
+   Sentinel-2. On Sentinel-2, Development is plotted in A->B but not in B->A.
+2. Landsat results look different: delta_net_5 is negative for every class and delta_net_3 is
+   ~0 or below (only Urban A->B slightly positive, +0.010, CI spans 0). Sentinel-2 had
+   Development (+0.082) and Urban (+0.044) recovering above null. The fixed pixel windows and
+   null shifts are 3x larger in metres on Landsat, which likely contributes; needs a decision on
+   how to interpret or whether to scale the windows/shifts.
+3. Docstring still says "For each of the 69 pairs"; Sentinel-2 finds 72 and Landsat 29.
+4. annotate_figures.py's caption for spatial_tolerance_delta.png contains a Sentinel-2-specific
+   interpretation ("only Urban/Development recover above null ... no >1-pixel
+   misregistration"); it does not hold for the Landsat figure and should not be reused for it.
