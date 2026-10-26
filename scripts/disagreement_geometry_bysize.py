@@ -272,6 +272,7 @@ def main():
     codes, names, colors = CI.load_legend()
     pairs = CI.find_pairs()
     print(f"double-interpreted cells: {len(pairs)} (no de-duplication)")
+    os.makedirs(OUT, exist_ok=True)
 
     df = build_patches(pairs, names, codes)
     print(f"disagreement patches: {len(df)}")

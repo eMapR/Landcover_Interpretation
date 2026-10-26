@@ -193,3 +193,43 @@ Open items (thresholds for advisor; not changed):
   nothing is cut off.
 - annotate_figures.py (separate script) still says "10 m each" in its width_ecdf.png text; it
   would be wrong if run on the Landsat figures.
+
+## 2026-10-26: disagreement_geometry_bysize.py
+
+Changes:
+- Added os.makedirs(OUT, exist_ok=True) in main(). All 4 outputs already went through
+  SC.out_path (OUT = DG.OUT), but the script never created the folder. It only ever ran against
+  the existing reports/ folder, so with LCI_OUT_DIR set to a new folder the first to_csv would
+  have failed. Without LCI_OUT_DIR this does nothing.
+- Importing disagreement_geometry (and compare_interpreters, sensor_config) writes nothing:
+  imported with LCI_OUT_DIR set to an empty scratch folder, which was still empty afterwards.
+
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel): 72 pairs, 255,985 disagreement patches.
+  size_conditional_summary.csv and gs_wetland_top10.csv are byte-identical to the committed
+  reports/. Nothing differs because of the newer data.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): 29 pairs, 21,341 disagreement patches, 0.09 ha per pixel on every
+  row of gs_wetland_top10.csv. No "10 m" or "0.01 ha" text in the CSVs or figures (the figures
+  give no resolution). Development->Urban has only 1 patch, so that ECDF panel shows only
+  Urban->Development.
+- git status after each run: nothing under reports/, outputs/ or exports/ modified.
+
+PNG differences against the committed reports/ (Sentinel-2):
+- gs_wetland_top10.png: the committed copy was later post-processed by annotate_figures.py
+  (extra caption strip, 4533 vs 4350 px tall), so it is not this script's direct output. In
+  the shared 4350 rows, 363 pixels differ by at most 2/255 (antialiasing, matplotlib 3.11.0 vs
+  3.11.2).
+- shape_index_area_weighted_ecdf.png: same curves and title, but the committed copy has larger
+  axis-label, tick and legend fonts than the committed code produces. The plotting code is
+  unchanged since fd99751, the commit that last wrote this PNG, and there is no matplotlibrc, so
+  the committed PNG was not made by the committed code. Rerunning this script to regenerate
+  figure_3_4c would shrink the fonts.
+
+Open items (not changed):
+1. gs_wetland_top10.png: the legend lists only the stable classes (codes 0-5), so the change
+   classes shown in the maps (yellow and others) are missing from it.
+2. gs_wetland_top10.png: the last word of the bottom caption ("patch.") overlaps the top
+   border of the legend box, on both sensors.
+3. For advisor: THRESH_HA = 0.1 ha (the lt_0.1ha / ge_0.1ha bins) is 10 px at 10 m but about
+   1.1 px at 30 m. On Landsat, lt_0.1ha holds only the single-pixel patches (0.09 ha) and
+   ge_0.1ha everything 2 px (0.18 ha) or larger.
