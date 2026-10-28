@@ -411,3 +411,52 @@ Open items (not changed):
    has no ge_5px row for it (empty bins are skipped, as before).
 2. Column and bin names now differ by sensor (*_0p1ha vs *_5px), so anything that joins the
    two sensors' summaries must map them.
+
+## 2026-10-28: reviewer_directional_asymmetry.py Minimum Sample Sizes Per Sensor (Advisor Decision)
+
+Decision (advisor): the minimum pooled pixel counts are 6 px (class rule, self + partner) and
+22 px (pair rule) on Landsat (30 m; 0.54 ha / 1.98 ha) instead of 50 / 200 px (4.5 ha / 18 ha).
+Sentinel-2 keeps 50 / 200 px and must stay byte-identical. Skipped is still strictly below.
+This closes the 50 px and 200 px rows of the 2026-10-26 "Hard-coded values" table for this
+script. The +1 px pseudo-count row stays as it was.
+
+Changes:
+- MIN_PX added, keyed by pixel area from the raster transform: 100 m^2 -> cls 50, pair 200;
+  900 m^2 -> cls 6, pair 22. min_px() raises ValueError for any other pixel area (same pattern
+  as SIZE_SPLITS / size_split() in disagreement_geometry.py).
+- build_pair_cms() now returns pix_m2; main() computes pix_ha = pix_m2 / SC.M2_PER_HA (the
+  same expression as before) and uses mp["cls"] / mp["pair"] in the two skip tests.
+- Docstring: one sentence on the per-sensor minimums. 50 and 200 appeared nowhere else (no
+  console text, CSV column, figure text or caption in annotate_figures.py,
+  build_thesis_materials.py, reports/README.md, the reliability memo or THESIS_FIGURES_AND_TABLES.md).
+- Unchanged: +1 pseudo-count, bootstrap (2000, seed 42), reviewer letters, Fire column, blank
+  cells, dpi.
+
+Checks (baseline = unedited script run first into <dir>/before, edited into <dir>/after):
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel/{before,after}): all 3 outputs
+  byte-identical (cmp). Console output identical except the output-folder path.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat/{before,after}): all 3 outputs changed, by added rows/cells only.
+  Every row of both "before" CSVs is present unchanged in "after".
+
+Landsat, skipped by the minimum-pixel rules:
+
+| | Class rule | Pair rule |
+|---|---|---|
+| before (< 50 / < 200 px) | 4 of 39 cells | 378 of 468 skipped (168 with > 0 px); 90 kept (19%) |
+| after (< 6 / < 22 px) | 2 of 39 cells: myscon Fire, robert Other (both 0 px) | 322 of 468 skipped (112 with > 0 px); 146 kept (31%) |
+
+- Cells added: robert Development +1.66 [+0.58, +3.29], significant (1.6 vs 0.4 ha); robert
+  Unknown +0.81 [-4.81, +5.36], not significant (1.8 vs 1.0 ha). Robert Development is a new
+  third significant over-assignment, after robert Insect/Disease (+5.81) and myscon Unknown
+  (+4.17).
+- Pairs added: 56 (bekka 26, myscon 18, robert 12), 22-172 px. 8 of them involve Fire. The
+  largest are the bekka/robert Forest<->Fire (172 px, log2 +/-7.44) and Harvest<->Fire
+  (130 px, +/-7.03) pairs.
+- Heatmap: two cells filled in (reviewer C Development +1.66*, Unknown +0.81). The colour scale
+  is unchanged (+/-7.49, set by Other) and all other cells are the same. Inspected: no
+  overlapping text.
+
+Open items from 2026-10-26: item 3 (blank cells, no explanation) stays open, but on Landsat
+it now concerns only robert Other (0 px). Items 1 (Fire column) and 2 (reviewer letters) are
+unchanged.

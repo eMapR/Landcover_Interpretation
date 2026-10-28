@@ -17,6 +17,10 @@ Uncertainty is a cluster (pair) bootstrap — the resampling unit is the pair, s
 A per-reviewer directed class-pair table shows WHICH boundary each leaning rides on
 (e.g. R says X where the partner says Y).
 
+Reviewer x class cells with self + partner below a minimum pixel count, and directed class
+pairs below a second minimum, are skipped; the minimums are per sensor (MIN_PX: 50/200 px at
+10 m, 6/22 px at 30 m).
+
 Outputs (reports/interpreter_agreement/, under LCI_OUT_DIR when set):
   - reviewer_class_overassignment.csv   reviewer x class: index, 95% CI, area, significance
   - reviewer_directed_classpairs.csv    per reviewer: strongest directed class-pair leanings
@@ -39,11 +43,26 @@ import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 OUT = SC.out_path("reports/interpreter_agreement")
 rng = np.random.default_rng(42)
 
+# minimum pooled pixels per sensor (pixel area in m^2); below = skipped (strictly less than)
+#   cls: self + partner for a reviewer x class cell, pair: a + b for a directed class pair
+MIN_PX = {
+    100.0: dict(cls=50, pair=200),   # 10 m (0.5 ha / 2 ha)
+    900.0: dict(cls=6, pair=22),     # 30 m, advisor 2026-10-28 (0.54 ha / 1.98 ha)
+}
+
+
+def min_px(pix_m2):
+    """The MIN_PX entry for a pixel area; ValueError for any pixel size not listed."""
+    if pix_m2 not in MIN_PX:
+        raise ValueError(f"no minimum pixel counts defined for pixel area {pix_m2:g} m^2 "
+                         f"(known: {', '.join(f'{a:g}' for a in MIN_PX)})")
+    return MIN_PX[pix_m2]
+
 
 def build_pair_cms():
-    """Return (order, names, list of (revA, revB, cm), pix_ha) with cm[i,j]=px A=code_i,B=code_j.
+    """Return (order, names, list of (revA, revB, cm), pix_m2) with cm[i,j]=px A=code_i,B=code_j.
 
-    pix_ha is the pixel area shared by every raster used (pooled px -> ha needs one pixel size).
+    pix_m2 is the pixel area shared by every raster used (pooled px -> ha needs one pixel size).
     """
     codes, names, _ = CI.load_legend()
     order = sorted(codes)
@@ -60,7 +79,7 @@ def build_pair_cms():
         cm, _ = CI.confusion(a, b, order)
         out.append((ra, rb, cm))
         used += [fA, fB]
-    return order, names, out, SC.uniform_pixel_area_m2(used) / SC.M2_PER_HA
+    return order, names, out, SC.uniform_pixel_area_m2(used)
 
 
 def pool_claims(cms, reviewers, C):
@@ -81,7 +100,9 @@ def pool_claims(cms, reviewers, C):
 
 def main(boot=2000):
     os.makedirs(OUT, exist_ok=True)
-    order, names, cms, pix_ha = build_pair_cms()
+    order, names, cms, pix_m2 = build_pair_cms()
+    pix_ha = pix_m2 / SC.M2_PER_HA
+    mp = min_px(pix_m2)
     C = len(order)
     reviewers = sorted({r for A, B, _ in cms for r in (A, B)})
     n_pairs = {r: sum(1 for A, B, _ in cms if r in (A, B)) for r in reviewers}
@@ -102,7 +123,7 @@ def main(boot=2000):
     for r in reviewers:
         for k, code in enumerate(order):
             cs, co = self_[r][k], other[r][k]
-            if cs + co < 50:                      # skip near-absent classes for this reviewer
+            if cs + co < mp["cls"]:               # skip near-absent classes for this reviewer
                 continue
             b = boot_idx[r][:, k]; b = b[~np.isnan(b)]
             lo, hi = (np.percentile(b, 2.5), np.percentile(b, 97.5)) if b.size else (np.nan, np.nan)
@@ -125,7 +146,7 @@ def main(boot=2000):
                 if i == j:
                     continue
                 a, b2 = d[i, j], d[j, i]
-                if a + b2 < 200:
+                if a + b2 < mp["pair"]:
                     continue
                 dp.append(dict(reviewer=r, says=names[order[i]], partner_says=names[order[j]],
                                px_R_over=int(a), px_partner_over=int(b2),
