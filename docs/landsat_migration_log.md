@@ -460,3 +460,61 @@ Landsat, skipped by the minimum-pixel rules:
 Open items from 2026-10-26: item 3 (blank cells, no explanation) stays open, but on Landsat
 it now concerns only robert Other (0 px). Items 1 (Fire column) and 2 (reviewer letters) are
 unchanged.
+
+## 2026-10-28: spatial_tolerance.py Minimum Class Denominator Per Sensor (Advisor Decision)
+
+Decision (advisor): MIN_DENOM_PX is 500 px on Landsat (30 m, 45 ha pooled) instead of 5000 px
+(450 ha). Sentinel-2 keeps 5000 px (50 ha) and must stay byte-identical. The comparison is
+unchanged: a class is plotted/printed if denom_px >= the minimum, left out if strictly below.
+The windows (3x3 and 5x5), null shifts, N_NULL, bootstrap and dpi are unchanged. This closes
+open item 1 of the 2026-10-26 spatial_tolerance.py entry and the MIN_DENOM_PX row of its
+"Hard-coded values" table.
+
+Changes:
+- MIN_DENOM_PX is now a dict keyed by pixel area from the raster transform: 100 m^2 -> 5000,
+  900 m^2 -> 500. min_denom_px() raises ValueError for any other pixel area (same pattern as
+  MIN_PX / min_px() in reviewer_directional_asymmetry.py); checked with 400 m^2.
+- stack_pairs() also returns SC.uniform_pixel_area_m2() over the rasters it used (ValueError
+  if they differ). main() looks up the minimum before the bootstrap and passes it to plot()
+  and the console table. No random draws were added, so shifts and bootstrap are unchanged.
+- The old comment "~50 ha pooled at 10 m (~450 ha at 30 m)" is replaced by per-entry comments
+  (50 ha at 10 m, 45 ha at 30 m). Docstring: one sentence giving the per-sensor minimum
+  (5000 px at 10 m, 500 px at 30 m) and that small classes stay in the CSV.
+- The threshold appears nowhere else: no figure text, CSV column, or caption in
+  annotate_figures.py, build_thesis_materials.py, build_chapter3_named_figures.py,
+  reports/README.md, the reliability memo or THESIS_FIGURES_AND_TABLES.md. The console line
+  reads "classes with denom>=500 px" on Landsat.
+
+Checks (baseline = unedited script run first into <dir>/before, edited into <dir>/after):
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel/{before,after}): both outputs
+  (spatial_tolerance_delta.csv, .png) byte-identical (cmp); the CSV is also identical to the
+  committed reports/ copy. Console output identical except the output-folder path.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat/{before,after}): 29 pairs. spatial_tolerance_delta.csv is
+  byte-identical (the minimum never filtered the CSV), so no row changed. Only the PNG and the
+  console table changed.
+
+Landsat classes left out by MIN_DENOM_PX:
+
+| | A->B | B->A |
+|---|---|---|
+| before (< 5000 px) | 5: Unknown (60), Harvest (2864), Development (26), Fire (315), Beaver (74) | 6: Unknown (109), Other (179), Harvest (2057), Development (73), Insect/Disease (108), Beaver (120) |
+| after (< 500 px) | 4: Unknown, Development, Fire, Beaver | 5: Unknown, Other, Development, Insect/Disease, Beaver |
+
+(0-px classes are not in the CSV: Other and Insect/Disease A->B, Fire B->A.)
+
+- Added: Harvest in both panels (6 -> 7 classes each). A->B: delta_net_3 +0.014
+  [-0.059, +0.089], delta_net_5 -0.039; it is now the first bar (highest delta_net_3) and the
+  first row of the console table, CI spans 0. B->A: delta_net_3 -0.049 [-0.086, -0.006],
+  delta_net_5 -0.145; third bar. Like every other Landsat class, Harvest does not recover
+  significantly above the null, and its 5x5 is below its 3x3.
+- Figure: the shared y-axis upper limit rises from ~0.07 to ~0.10 (Harvest A->B CI top
+  +0.089), so the other bars are drawn slightly shorter; their values are unchanged. Image size
+  1522 x 1376 in both. Inspected: no overlapping text; the Harvest error bar stays clear of the
+  legend.
+
+Open items (not changed):
+- Fire A->B (315 px, 28 ha) is still left out on Landsat.
+- Items 2-4 of the 2026-10-26 entry (negative Landsat recovery and the fixed pixel
+  windows/shifts, "69 pairs" in the docstring, Sentinel-2-specific caption in
+  annotate_figures.py) are still open.

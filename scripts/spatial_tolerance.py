@@ -21,6 +21,9 @@ by more than a pixel — a different problem than sub-pixel boundary jitter.
 
 Uncertainty: cluster (pair) bootstrap, seed 42. All randomness uses default_rng(42).
 
+Classes whose pooled denominator is below a per-sensor minimum (MIN_DENOM_PX: 5000 px at 10 m,
+500 px at 30 m) are kept in the CSV but left out of the figure and the console table.
+
 Outputs (reports/interpreter_agreement/):
   - spatial_tolerance_delta.csv     per direction x window x class: strict, relaxed,
                                     delta, null_delta, delta_net (+95% CI), denom
@@ -47,9 +50,22 @@ import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 OUT = SC.out_path("reports/interpreter_agreement")
 WINDOWS = [3, 5]
 N_NULL = 4
-MIN_DENOM_PX = 5000          # ~50 ha pooled at 10 m (~450 ha at 30 m); smaller classes flagged, not plotted
+# minimum pooled class denominator (px) to plot/print, chosen from the pixel area (m^2);
+# classes strictly below are kept in the CSV but left out of the figure and console table
+MIN_DENOM_PX = {
+    100.0: 5000,   # 10 m (50 ha pooled)
+    900.0: 500,    # 30 m, advisor 2026-10-28 (45 ha pooled)
+}
 rng_shift = np.random.default_rng(42)
 rng_boot = np.random.default_rng(42)
+
+
+def min_denom_px(pix_m2):
+    """The MIN_DENOM_PX entry for a pixel area; ValueError for any pixel size not listed."""
+    if pix_m2 not in MIN_DENOM_PX:
+        raise ValueError(f"no minimum class denominator defined for pixel area {pix_m2:g} m^2 "
+                         f"(known: {', '.join(f'{a:g}' for a in MIN_DENOM_PX)})")
+    return MIN_DENOM_PX[pix_m2]
 
 
 def rand_shift():
@@ -104,8 +120,9 @@ def pair_counts(a, b, order):
 
 
 def stack_pairs(order):
+    """Return (per-pair counts, pixel area in m^2 shared by every raster used)."""
     pairs = CI.find_pairs()
-    recs = []
+    recs, used = [], []
     for (gid, samp, tgt), revs in sorted(pairs.items()):
         (ra, fA), (rb, fB) = revs[0], revs[1]
         with rasterio.open(fA) as s:
@@ -118,7 +135,8 @@ def stack_pairs(order):
         valid = np.isin(a, order) & np.isin(b, order)
         a = np.where(valid, a, -1); b = np.where(valid, b, -1)
         recs.append(pair_counts(a, b, order))
-    return recs
+        used += [fA, fB]
+    return recs, SC.uniform_pixel_area_m2(used)
 
 
 def pooled_delta_net(recs, idx, direction, window, k):
@@ -137,7 +155,8 @@ def main(boot=2000):
     os.makedirs(OUT, exist_ok=True)
     codes, names, _ = CI.load_legend()
     order = sorted(codes)
-    recs = stack_pairs(order)
+    recs, pix_m2 = stack_pairs(order)
+    min_px = min_denom_px(pix_m2)
     n = len(recs)
     allidx = list(range(n))
     print(f"pairs: {n}   windows: {WINDOWS}   null shifts: {SHIFTS}")
@@ -170,10 +189,10 @@ def main(boot=2000):
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(OUT, "spatial_tolerance_delta.csv"), index=False)
 
-    plot(df, os.path.join(OUT, "spatial_tolerance_delta.png"))
+    plot(df, os.path.join(OUT, "spatial_tolerance_delta.png"), min_px)
 
-    print("\ndelta above null (A->B), classes with denom>=%d px:" % MIN_DENOM_PX)
-    sub = df[(df.direction == "AtoB") & (df.denom_px >= MIN_DENOM_PX)].sort_values("delta_net_3", ascending=False)
+    print("\ndelta above null (A->B), classes with denom>=%d px:" % min_px)
+    sub = df[(df.direction == "AtoB") & (df.denom_px >= min_px)].sort_values("delta_net_3", ascending=False)
     print(sub[["cls", "denom_px", "strict_3", "delta_net_3", "net_lo_3", "net_hi_3",
                "delta_net_5"]].to_string(index=False))
     print("\ninterpretation: high delta_net_3 = boundary-misregistration (edge-driven); "
@@ -189,13 +208,13 @@ def _caption(fig, text, top=1.0, width=125):
     fig.text(0.5, 0.01, wrapped, ha="center", va="bottom", fontsize=8, color="0.35")
 
 
-def plot(df, path):
+def plot(df, path, min_px):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, axes = plt.subplots(2, 1, figsize=(11, 10), sharey=True)   # stacked so each panel is wide and readable
     for ax, direction in zip(axes, ["AtoB", "BtoA"]):
-        sub = df[(df.direction == direction) & (df.denom_px >= MIN_DENOM_PX)].copy()
+        sub = df[(df.direction == direction) & (df.denom_px >= min_px)].copy()
         sub = sub.sort_values("delta_net_3", ascending=False)
         x = np.arange(len(sub)); wbar = 0.4
         err3 = [sub.delta_net_3 - sub.net_lo_3, sub.net_hi_3 - sub.delta_net_3]
