@@ -4,14 +4,18 @@
 The pooled shape index (~1.13-1.20) is dominated by single-pixel specks (a 1x1 patch has
 shape index = 4/(2*sqrt(pi)) = 1.128). This re-does the geometry weighting by AREA rather
 than patch count, and conditions on patch size, to characterize the patches that actually
-hold the disagreement area (the >0.1 ha patches carry 55-83% of it).
+hold the disagreement area (on Sentinel-2, the >0.1 ha patches carry 55-83% of it).
 
-For each directed class pair it reports, for {all, <0.1 ha, >=0.1 ha}:
+The small/large split comes from the pixel area (DG.SIZE_SPLITS): 0.1 ha at 10 m (size bins
+lt_0.1ha / ge_0.1ha) and 5 px = 0.45 ha at 30 m (lt_5px / ge_5px); "small" is strictly below.
+Any other pixel size is an error.
+
+For each directed class pair it reports, for {all, small, large}:
   - count-median and AREA-WEIGHTED-median shape index and pixel width (2A/P)
   - median extent = area / bounding-box area (compactness): ribbons have low extent + high
     shape index + ~1-2 px width; blobs have high extent + low shape index + several px width
 
-Then, for Grass/Shrub<->Wetland (the worst case, ~83% of area in >0.1 ha patches), it pulls
+Then, for Grass/Shrub<->Wetland (the worst case on Sentinel-2, ~83% of area in >0.1 ha patches), it pulls
 the 10 largest disagreement patches (undirected GS/Wetland zone) and renders each: the two
 interpretations side by side with the disagreement patch outlined, so a wide margin band is
 distinguishable from a solid interior block.
@@ -41,7 +45,6 @@ import disagreement_geometry as DG   # per_pixel_perimeter, classic, ecdf, FOCUS
 import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = DG.OUT
-THRESH_HA = 0.1
 GS, WET = 2, 5
 rng = np.random.default_rng(42)
 
@@ -63,8 +66,12 @@ def wmedian(values, weights):
 
 
 def build_patches(pairs, names, codes):
-    """Recompute disagreement patches with extent (area / bbox area)."""
+    """Recompute disagreement patches with extent (area / bbox area).
+
+    Returns (patch DataFrame, pixel area in m^2); ValueError if cells have different pixel areas.
+    """
     rows = []
+    pix_areas = set()                                # m^2; the size split needs one pixel size
     for (gid, samp, tgt), revs in sorted(pairs.items()):
         (ra, fA), (rb, fB) = revs[0], revs[1]
         cid = f"{gid}_s{samp}_t{tgt}"
@@ -74,7 +81,9 @@ def build_patches(pairs, names, codes):
             b = s.read(1)
         if a.shape != b.shape:
             continue
-        pix_ha = SC.uniform_pixel_area_m2([fA, fB]) / SC.M2_PER_HA
+        pix_m2 = SC.uniform_pixel_area_m2([fA, fB])
+        pix_areas.add(pix_m2)
+        pix_ha = pix_m2 / SC.M2_PER_HA
         valid = np.isin(a, codes) & np.isin(b, codes)
         dis = valid & (a != b)
         for (A, B) in {(int(x), int(y)) for x, y in zip(a[dis], b[dis])}:
@@ -98,10 +107,12 @@ def build_patches(pairs, names, codes):
                                  shape_index=P / (2 * np.sqrt(np.pi * Ap)),
                                  width_px=2 * Ap / P if P else np.nan,
                                  extent=Ap / bbox, touches_edge=bool(lid in edge_labels)))
-    return pd.DataFrame(rows)
+    if len(pix_areas) != 1:
+        raise ValueError(f"cells have different pixel areas: {sorted(pix_areas)} m^2")
+    return pd.DataFrame(rows), pix_areas.pop()
 
 
-def size_summary(df):
+def size_summary(df, split):
     """Per directed focus pair x size bin: count- and area-weighted geometry."""
     focus = []
     for _, ca, cb in DG.FOCUS_LABELS():
@@ -138,14 +149,16 @@ def size_summary(df):
         else:
             sub_all = df[(df.class_a == na) & (df.class_b == nb)]
             label = f"{na} -> {nb}"
+        small = DG.is_small(sub_all, split)
         for sizebin, sub in [("all", sub_all),
-                             ("lt_0.1ha", sub_all[sub_all.area_ha < THRESH_HA]),
-                             ("ge_0.1ha", sub_all[sub_all.area_ha >= THRESH_HA])]:
+                             (f"lt_{split['tag']}", sub_all[small]),
+                             (f"ge_{split['tag']}", sub_all[~small])]:
             rowset(sub, label, sizebin)
     # pooled ALL
+    small = DG.is_small(df, split)
     for sizebin, sub in [("all", df),
-                         ("lt_0.1ha", df[df.area_ha < THRESH_HA]),
-                         ("ge_0.1ha", df[df.area_ha >= THRESH_HA])]:
+                         (f"lt_{split['tag']}", df[small]),
+                         (f"ge_{split['tag']}", df[~small])]:
         rowset(sub, "ALL disagreement", sizebin)
     return pd.DataFrame(out)
 
@@ -274,13 +287,14 @@ def main():
     print(f"double-interpreted cells: {len(pairs)} (no de-duplication)")
     os.makedirs(OUT, exist_ok=True)
 
-    df = build_patches(pairs, names, codes)
+    df, pix_m2 = build_patches(pairs, names, codes)
+    split = DG.size_split(pix_m2)
     print(f"disagreement patches: {len(df)}")
 
-    summ = size_summary(df)
+    summ = size_summary(df, split)
     summ.to_csv(os.path.join(OUT, "size_conditional_summary.csv"), index=False)
-    print("\nsize-conditional geometry (>=0.1 ha patches):")
-    show = summ[summ.size_bin == "ge_0.1ha"][
+    print(f"\nsize-conditional geometry (>={split['ge_text']} patches):")
+    show = summ[summ.size_bin == f"ge_{split['tag']}"][
         ["pair", "n_patches", "total_area_ha", "med_width", "med_shape", "med_extent",
          "aw_med_width", "aw_med_shape"]]
     print(show.to_string(index=False))

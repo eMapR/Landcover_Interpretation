@@ -28,7 +28,9 @@ Traps handled:
 Outputs (reports/interpreter_agreement/geometry/):
   - patch_geometry.csv            long format, one row per patch (disagreement + agreement)
   - patchpair_summary.csv         per directed class pair x {all, interior}: n, area median/IQR,
-                                  shape median, fraction of disagreement area < / >= 0.1 ha
+                                  shape median, fraction of disagreement area below / at-or-above
+                                  the small/large split (see SIZE_SPLITS: 0.1 ha at 10 m, columns
+                                  *_0p1ha; 5 px = 0.45 ha at 30 m, columns *_5px)
   - width_distribution.csv        pixel-width summary of disagreement patches
   - area_ecdf_focus.png           area ECDFs for the known high-disagreement boundaries
   - shape_index_ecdf_focus.png    shape-index ECDFs for the same boundaries
@@ -54,8 +56,30 @@ import sensor_config as SC  # SENSOR, RF_GLOB, pixel area from transform
 
 OUT = SC.out_path("reports/interpreter_agreement/geometry")
 STRUCT = np.ones((3, 3), int)      # 8-connectivity
-AREA_THRESH_HA = 0.1               # fixed in ha, so its pixel count depends on the pixel size
 rng = np.random.default_rng(42)    # only used if any sampling is needed
+
+# small/large disagreement-patch split, chosen from the pixel area (m^2); "small" = strictly below.
+#   tag: size_bin suffix, col: CSV column suffix, text: console label, ge_text: console ">=" label
+SIZE_SPLITS = {
+    100.0: dict(ha=0.1, tag="0.1ha", col="0p1ha", text="0.1ha", ge_text="0.1 ha"),  # 10 m
+    900.0: dict(px=5, tag="5px", col="5px", text="5px (0.45ha)",                   # 30 m, advisor
+                ge_text="5 px (0.45 ha)"),                                        # 2026-10-28
+}
+
+
+def size_split(pix_m2):
+    """The SIZE_SPLITS entry for a pixel area; ValueError for any pixel size not listed."""
+    if pix_m2 not in SIZE_SPLITS:
+        raise ValueError(f"no small/large patch threshold defined for pixel area {pix_m2:g} m^2 "
+                         f"(known: {', '.join(f'{a:g}' for a in SIZE_SPLITS)})")
+    return SIZE_SPLITS[pix_m2]
+
+
+def is_small(sub, split):
+    """Boolean array: patches in `sub` strictly below the split (pixel count if set, else ha)."""
+    if "px" in split:
+        return sub.area_px.to_numpy() < split["px"]
+    return sub.area_ha.to_numpy() < split["ha"]
 
 
 def _caption(fig, text, top=1.0, width=125):
@@ -138,22 +162,24 @@ def main():
 
     if len(pix_areas) != 1:
         raise ValueError(f"cells have different pixel areas: {sorted(pix_areas)} m^2")
-    res_m = float(np.sqrt(pix_areas.pop()))         # pixel side, for figure text
+    pix_m2 = pix_areas.pop()
+    split = size_split(pix_m2)
+    res_m = float(np.sqrt(pix_m2))                  # pixel side, for figure text
 
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(OUT, "patch_geometry.csv"), index=False)
     print(f"patches: {len(df)}  (disagreement {int((df.kind=='disagreement').sum())}, "
           f"agreement {int((df.kind=='agreement').sum())})")
 
-    write_summaries(df, names)
+    write_summaries(df, names, split)
     make_plots(df, names, colors, res_m)
     print(f"\noutputs -> {OUT}/")
 
 
-def _pair_stats(sub):
+def _pair_stats(sub, split):
     a = sub.area_ha.to_numpy()
     tot = a.sum()
-    under = a[a < AREA_THRESH_HA].sum()
+    under = a[is_small(sub, split)].sum()
     return dict(
         n_patches=len(sub),
         area_median_ha=round(float(np.median(a)), 4),
@@ -161,19 +187,19 @@ def _pair_stats(sub):
         area_q75_ha=round(float(np.percentile(a, 75)), 4),
         shape_index_median=round(float(np.median(sub.shape_index)), 3),
         width_px_median=round(float(np.median(sub.width_px.dropna())), 3),
-        frac_area_under_0p1ha=round(float(under / tot), 4) if tot else np.nan,
-        frac_area_over_0p1ha=round(float(1 - under / tot), 4) if tot else np.nan,
+        **{f"frac_area_under_{split['col']}": round(float(under / tot), 4) if tot else np.nan,
+           f"frac_area_over_{split['col']}": round(float(1 - under / tot), 4) if tot else np.nan},
     )
 
 
-def write_summaries(df, names):
+def write_summaries(df, names, split):
     dis = df[df.kind == "disagreement"]
     out = []
     for subset, mask in [("all", np.ones(len(dis), bool)),
                          ("interior", ~dis.touches_edge.to_numpy())]:
         d = dis[mask]
         for (ca, cb), sub in d.groupby(["class_a", "class_b"]):
-            out.append(dict(class_a=ca, class_b=cb, subset=subset, **_pair_stats(sub)))
+            out.append(dict(class_a=ca, class_b=cb, subset=subset, **_pair_stats(sub, split)))
     summ = pd.DataFrame(out).sort_values(["subset", "n_patches"], ascending=[True, False])
     summ.to_csv(os.path.join(OUT, "patchpair_summary.csv"), index=False)
 
@@ -193,17 +219,18 @@ def write_summaries(df, names):
 
     # console: focus boundaries
     print("\nfocus boundaries (disagreement, subset=all): "
-          "n | area median [IQR] ha | shape med | %area <0.1ha")
+          f"n | area median [IQR] ha | shape med | %area <{split['text']}")
+    under_col = f"frac_area_under_{split['col']}"
     for title, ca, cb in FOCUS_LABELS():
         for A, B in [(ca, cb), (cb, ca)]:
             sub = dis[(dis.class_a == names[A]) & (dis.class_b == names[B])]
             if len(sub):
-                s = _pair_stats(sub)
+                s = _pair_stats(sub, split)
                 print(f"  {names[A]:>12} -> {names[B]:<12} "
                       f"n={s['n_patches']:>5}  {s['area_median_ha']:.3f} "
                       f"[{s['area_q25_ha']:.3f},{s['area_q75_ha']:.3f}]  "
                       f"shp={s['shape_index_median']:.2f}  "
-                      f"<0.1ha={100*s['frac_area_under_0p1ha']:.0f}%")
+                      f"<{split['text']}={100*s[under_col]:.0f}%")
 
 
 BEAVER = 62

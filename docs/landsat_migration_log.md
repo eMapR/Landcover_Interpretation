@@ -351,3 +351,63 @@ Open items (not changed):
 4. annotate_figures.py's caption for spatial_tolerance_delta.png contains a Sentinel-2-specific
    interpretation ("only Urban/Development recover above null ... no >1-pixel
    misregistration"); it does not hold for the Landsat figure and should not be reused for it.
+
+## 2026-10-28: Small/Large Patch Threshold Per Sensor (Advisor Decision)
+
+Decision (advisor): the small/large disagreement-patch split is 5 pixels on Landsat (30 m,
+0.45 ha) instead of 0.1 ha. Sentinel-2 keeps 0.1 ha and must stay byte-identical. "Small" is
+still strictly below the threshold. This closes the open items on AREA_THRESH_HA
+(disagreement_geometry.py, 2026-10-26) and THRESH_HA (disagreement_geometry_bysize.py, item 3).
+
+Changes:
+- disagreement_geometry.py: AREA_THRESH_HA replaced by SIZE_SPLITS, keyed by pixel area from
+  the raster transform: 100 m^2 -> area_ha < 0.1 (same comparison as before); 900 m^2 ->
+  area_px < 5 (whole pixels, so no float edge at 0.45 ha). Any other pixel area raises
+  ValueError via size_split(). is_small() applies the rule; _pair_stats/write_summaries take
+  the split.
+- Labels on Landsat: patchpair_summary.csv columns frac_area_under_5px / frac_area_over_5px;
+  size_conditional_summary.csv size_bin lt_5px / ge_5px; console "<5px (0.45ha)" and
+  "(>=5 px (0.45 ha) patches)". Sentinel-2 keeps *_0p1ha, lt_0.1ha / ge_0.1ha, "<0.1ha".
+- disagreement_geometry_bysize.py: THRESH_HA removed; uses DG.size_split / DG.is_small.
+  build_patches now also returns the pixel area and raises ValueError if cells have
+  different pixel areas (the same check disagreement_geometry.py already had).
+- Docstrings in both scripts describe the per-sensor split; the quoted 55-83% / ~83% are
+  marked as Sentinel-2 results.
+- No figure draws or labels the threshold, so no figure code changed.
+
+Checks (baseline = unedited scripts run first into <dir>/before, edited into <dir>/after):
+- 10 m Sentinel-2 (only LCI_OUT_DIR=check_sentinel/{before,after}): all 10 outputs of both
+  scripts (5 CSV, 5 PNG) byte-identical (cmp). Console output identical except the
+  output-folder path.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat/{before,after}): only patchpair_summary.csv and
+  size_conditional_summary.csv changed; patch_geometry.csv, width_distribution.csv,
+  gs_wetland_top10.csv and all 5 PNGs byte-identical.
+- Figures inspected (Landsat): no new overlap. The known overlap in gs_wetland_top10.png
+  (caption "patch." touching the legend box, both sensors) is unchanged; not fixed here
+  because fixing it would change the Sentinel-2 PNG.
+
+Landsat split, all disagreement patches (21,341 patches, 5,667.93 ha):
+
+| Rule | Small n (share) | Small area (share) | Large n (share) | Large area (share) |
+|---|---|---|---|---|
+| before: < 0.1 ha (= 1 px only) | 13,052 (61.2%) | 1,174.68 ha (20.7%) | 8,289 (38.8%) | 4,493.25 ha (79.3%) |
+| after: < 5 px (1-4 px) | 19,028 (89.2%) | 2,535.75 ha (44.7%) | 2,313 (10.8%) | 3,132.18 ha (55.3%) |
+
+For comparison, Sentinel-2 at < 0.1 ha (1-9 px): small 232,804 (90.9%) of 255,985 patches,
+27.3% of 18,423.49 ha.
+
+Landsat share of disagreement area in small patches, per focus pair (before -> after):
+Forest->Wetland 17% -> 39%; Wetland->Forest 18% -> 40%; Agriculture->Grass/Shrub 13% -> 32%;
+Grass/Shrub->Agriculture 15% -> 37%; Grass/Shrub->Forest 23% -> 49%; Forest->Grass/Shrub
+28% -> 58%; Grass/Shrub->Wetland 7% -> 16%; Wetland->Grass/Shrub 19% -> 43%;
+Development->Urban 100% -> 100% (1 patch); Urban->Development 50% -> 100% (11 patches).
+
+Large-patch geometry on Landsat (ALL disagreement): area-weighted median shape index 1.963 ->
+2.331, area-weighted median width 0.905 -> 1.099 px.
+
+Open items (not changed):
+1. Urban->Development has no patch of 5 px or more on Landsat, so size_conditional_summary.csv
+   has no ge_5px row for it (empty bins are skipped, as before).
+2. Column and bin names now differ by sensor (*_0p1ha vs *_5px), so anything that joins the
+   two sensors' summaries must map them.
