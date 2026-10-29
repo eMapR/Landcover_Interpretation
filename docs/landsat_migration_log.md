@@ -518,3 +518,134 @@ Open items (not changed):
 - Items 2-4 of the 2026-10-26 entry (negative Landsat recovery and the fixed pixel
   windows/shifts, "69 pairs" in the docstring, Sentinel-2-specific caption in
   annotate_figures.py) are still open.
+
+## 2026-10-29: Prithvi Loader and --prithvi in collapsed_5class_confusion.py
+
+Change: new shared loader scripts/prithvi_loader.py for the Prithvi change-detection outputs, and
+a --prithvi path in scripts/collapsed_5class_confusion.py that scores the four Prithvi models
+against the 30 m Landsat references. Only this one script is adapted so far.
+
+Data (read-only):
+- Prithvi outputs: /home/server/hpc/emapr/prithvi_change_results/outputs/<label_year>/<model>/<cell_id>.tif
+  (per-year folders only; the 4 model folders directly under outputs/ are not used). 28,224 tiles
+  (21 years x 4 models x 336 cells), all 112 x 112, 30 m, EPSG:5070, 5 float32 softmax bands named
+  agriculture, development, harvest, insect_disease_defo, background. 0 NaN/inf, no value outside
+  [0, 1], max |band sum - 1| = 2.6e-7, no exact argmax ties. Every tile sits 9.1021 m east and
+  0.0729 m north of the 30 m reference grid; chip and output grids agree on every tile.
+- Chips: chips/<label_year>/<cell_id>.tif, no NaN anywhere, no nodata value set (nodata=None, mask
+  all_valid on all 7,056 files). Missing input is stored as 0 in all 6 bands: 10,172,332 of
+  88,510,464 output pixels (11.5%) have all-zero input in at least one of the 4 years (323 of 336
+  cells; 7 cells are all-zero in every year). No inference code (.py/.ipynb) is present under
+  prithvi_change_results, only README.txt and checkpoint.txt files.
+- Agriculture is never the argmax in any model, tile or pixel.
+- References: /vol/v1/HLS_Prithvi/HLS_prithvi_outputs, 391 rf_class rasters (16 empty folders).
+  366 match a Prithvi output under the "target" rule (all 4 models present); 25 do not (25 grid
+  cells outside the 336, all in the CKIT_RF_*_grid_Landsat_* folders). Under centre-based lookup
+  every matched reference has exactly 12,544 pixels under a Prithvi pixel (1:1); the extra row(s)
+  and column (112-338 px) are nodata.
+
+Design (prithvi_loader.py):
+- Settings: PRITHVI_ROOT (LCI_PRITHVI_ROOT), PRITHVI_MODELS, PRITHVI_YEAR_RULE = "target",
+  PRITHVI_ZERO_INPUT = "any_year" ("any_year" | "label_year" | "none"), PRITHVI_BANDS,
+  PRITHVI_COLLAPSE (background 1 Stable, harvest 2, development 3, insect_disease_defo 4,
+  agriculture AGRICULTURE = 6; Beaver 5 never produced).
+- read_probs() refuses anything that is not the documented 5-band float32 probability stack
+  (band names in order, finite, in [0, 1], sums to 1 within 1e-4), so the bands can never be
+  read as class codes. collapsed_argmax(): argmax first, then collapse. align_to_reference():
+  centre-based lookup onto each reference raster's own grid (index arithmetic, no resampling);
+  reference pixels with no Prithvi pixel under the centre are nodata. zero_input_mask(): from the
+  chip's centre crop. load_for_reference(): aligned codes plus the aligned zero-input mask, unmasked,
+  or None when no output exists.
+
+Changes to collapsed_5class_confusion.py:
+- --prithvi: 4x4 census (Stable, Harvest, Development, Insect/Disease). Unknown, Fire and Beaver
+  reference pixels excluded; Beaver reference pixels and what each model predicted on them in
+  side_beaver.csv; Prithvi agriculture kept out of the matrix and reported by reference class in
+  side_agriculture.csv. Main result masked by PRITHVI_ZERO_INPUT, unmasked result alongside
+  (_masked / _unmasked files, mask column in metrics_long.csv). CIs with FPC = 1, labelled "no FPC,
+  Landsat frame size unknown" (Sentinel-2 keeps N_FRAME = 21561). Also writes reference.txt
+  (provenance, provisional choices, open questions, pixel accounting), scored_cells.csv and
+  no_prithvi_match.csv. --prithvi requires LCI_OUT_DIR and refuses --preds.
+- --truth is refused for --prithvi and for any LCI_SENSOR other than Sentinel-2.
+- metrics(), ratio_cis() and plot_rownorm() take any square matrix size (plot_rownorm gains
+  labels= and scheme=); bootstrap_cis() gains metrics_fn= (default metrics). The defaults
+  reproduce the 5x5 behaviour used by the ~15 importing scripts.
+- Macro-F1 for --prithvi only (metrics_f1_zero): a class present in the reference whose F1 is
+  undefined (never predicted, or predicted with no true positive) gets F1 = 0 and counts in
+  macro-F1 instead of being dropped, in the point estimate, the per-class F1 and the bootstrap
+  CIs. Sentinel-2 keeps metrics() unchanged (undefined F1 dropped by nanmean).
+
+Decisions (PROVISIONAL / TO BE CONFIRMED):
+- Year rule "target" (Prithvi label year = reference target year): TO BE CONFIRMED.
+- Reference selection: seeded dedup (default_rng seed 42) over double-interpretations, PROVISIONAL;
+  no Landsat truth set exists and exports/truth_selections.csv is never used for Landsat.
+  362 cells after dedup, 337 scored, 25 without a Prithvi output.
+- Zero-input mask: pixels with all-zero chip input in any of the 4 years are masked, PROVISIONAL;
+  unmasked reported alongside.
+- Agriculture: own category, side table only (0 px predicted).
+- Beaver: excluded from the matrix like Unknown, side table.
+
+Checks:
+- 10 m Sentinel-2 end-to-end, ON SYNTHETIC MODEL MAPS: the real model inputs
+  (data/raw/model_maps, data/raw/transfer_predictions) are on Google Drive, not on Islay, so the
+  byte-identical check used deterministic synthetic model maps (reference crosswalk plus seeded
+  noise) built in a scratch folder, with the real rf_class_maps and truth CSV linked in. The
+  unedited (HEAD) and edited scripts were run with default settings (no LCI_* set) in both
+  configurations (default dedup + static mosaics, and --truth --preds): all 20 outputs per
+  configuration, PNGs included, byte-identical (diff -r), console output identical. Repeated after
+  the macro-F1 change: still identical. This is not a run on the real model maps.
+- Shared helpers, directly: the HEAD version (git show HEAD:scripts/collapsed_5class_confusion.py)
+  and the edited version were loaded side by side and called on seeded random 5x5 confusion
+  matrices, including empty rows, empty columns, both, no true positives, sparse, all-zero,
+  single-class and off-diagonal-only matrices. metrics(): 63/63 identical (exact float bits, NaN
+  included, same keys in the same order); ratio_cis(): 20/20 identical (N = 21561, 1000 and inf,
+  stacks with a class never in the reference or never predicted); bootstrap_cis() with the default
+  metrics_fn: 20/20 identical; plot_rownorm() with default arguments: 15/15 PNGs byte-identical.
+  Negative controls (a perturbed matrix, NaN vs 0) are detected as different. This covers the
+  functions the importing scripts call, independently of the synthetic end-to-end run.
+- 30 m Landsat (LCI_SENSOR=Landsat, LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs,
+  LCI_OUT_DIR=check_landsat): spot-check of 9 cells (reference heights 112/113/114, both vertical
+  offsets, one fully zero-input cell, partly masked cells) x 4 models against an independent
+  rasterio reproject (nearest) of the argmax and of the chip zero-input mask: 72/72 identical.
+  All 8 confusion figures inspected: no overlapping text.
+
+Pixel accounting (deduped, 337 cells): 4,302,701 reference px, 4,227,328 under a Prithvi pixel,
+599,882 (14.2%) with zero input in some year; Beaver 1,343 px (1,312 after masking), Unknown/Fire
+1,033 px (900).
+
+Results (OA ratio CI; others bootstrap; no FPC). Masked = main, unmasked alongside:
+
+| Model | Mask | Cells | OA | All-Stable | kappa | macro-F1 | F1 Harvest | F1 Dev | F1 I/D |
+|---|---|---|---|---|---|---|---|---|---|
+| fcn_frozen | any_year | 326 | 0.976 | 0.986 | 0.184 | 0.325 | 0.293 | 0.017 | 0.004 |
+| fcn_frozen | none | 337 | 0.977 | 0.987 | 0.180 | 0.325 | 0.291 | 0.016 | 0.004 |
+| fcn_random | any_year | 326 | 0.979 | 0.986 | 0.164 | 0.307 | 0.218 | 0.013 | 0.008 |
+| fcn_random | none | 337 | 0.981 | 0.987 | 0.161 | 0.306 | 0.215 | 0.013 | 0.008 |
+| fcn_unfrozen | any_year | 326 | 0.984 | 0.986 | 0.241 | 0.326* | 0.288 | 0.024 | 0.000* |
+| fcn_unfrozen | none | 337 | 0.986 | 0.987 | 0.242 | 0.326* | 0.289 | 0.023 | 0.000* |
+| unet3d | any_year | 326 | 0.985 | 0.986 | 0.211 | 0.326 | 0.238 | 0.070 | 0.004 |
+| unet3d | none | 337 | 0.987 | 0.987 | 0.213 | 0.325 | 0.239 | 0.066 | 0.004 |
+
+*fcn_unfrozen has 0 correct Insect/Disease pixels, so its I/D F1 is undefined; it now counts as
+0 (metrics_f1_zero). Before this change it was dropped and macro-F1 read 0.435 (masked and
+unmasked), a 3-class average. Macro-F1 95% bootstrap CIs (masked): fcn_frozen 0.311-0.340,
+fcn_random 0.293-0.323, fcn_unfrozen 0.311-0.342, unet3d 0.304-0.351 (was 0.304-0.448, inflated
+by resamples where I/D F1 was undefined). The other point estimates are unchanged; the figures do
+not show F1 and are unchanged.
+11 masked cells drop out entirely (all their pixels have zero input).
+
+Run command (from the repo root; writes check_landsat/reports/collapsed_5class_confusion/):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+Open questions:
+- Year rule: is the Prithvi label year the reference target year?
+- Agriculture: what Prithvi "agriculture" means (conversion to agriculture?) and where it belongs
+  in the collapsed scheme. It is never predicted at present.
+- Zero vs NaN in chips: chips store missing input as 0; unknown whether inference converted 0 to
+  NaN/-1, or whether these are the chip files used for inference.
+- Landsat N_FRAME: frame size for the grid_112 cells unknown, so no FPC.
+- Truth set: no adjudicated Landsat truth set; seeded dedup in the meantime.
+- Not changed: reference code 0 (Urban) still folds into Stable; the 2026-10-21 question whether
+  all-zero edge rows/columns are padding applies here too (225,198 code-0 px in the footprint).
+- Done: macro-F1 on --prithvi counts an undefined F1 as 0 (see above); Sentinel-2 unchanged.
