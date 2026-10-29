@@ -649,3 +649,60 @@ Open questions:
 - Not changed: reference code 0 (Urban) still folds into Stable; the 2026-10-21 question whether
   all-zero edge rows/columns are padding applies here too (225,198 code-0 px in the footprint).
 - Done: macro-F1 on --prithvi counts an undefined F1 as 0 (see above); Sentinel-2 unchanged.
+
+## 2026-10-29: Prithvi Label-Year Offset Diagnostic (scripts/prithvi_year_offset.py)
+
+Read-only diagnostic of the provisional year rule (label year = reference target year). Each
+reference cell is scored against the Prithvi output for label year = target year + offset, offset
+-2..+2. A cell is skipped for an offset when no output exists for that year. Everything else is as
+in collapsed_5class_confusion.py --prithvi: seeded dedup (seed 42, 362 cells), argmax and
+centre-based lookup via prithvi_loader.py, 4x4 census (Beaver, Unknown and Fire excluded;
+agriculture out of the matrix), metrics_f1_zero, and the zero-input mask "any_year" taken from
+the chip of the offset label year. prithvi_loader.py and collapsed_5class_confusion.py are
+imported, not changed. The script refuses to run without LCI_OUT_DIR or with a sensor other than
+Landsat (both refusals tested). Checks: offset 0 reproduces the --prithvi any_year row for every
+model (326 cells, same kappa and F1s). A rerun from scripts/ gave byte-identical
+outputs to the first run in check_landsat/year_offset/ (all 3 files, cmp).
+
+Results, kappa / Harvest F1 (mask any_year). Cells = cells with an output for that year / cells
+contributing valid pixels. The last column is offset 0 restricted to the 311 cells that have all
+five offsets:
+
+| Model | -2 (311/301) | -1 (322/312) | 0 (337/326) | +1 (337/326) | +2 (337/328) | 0, all-5 cells (311/300) |
+|---|---|---|---|---|---|---|
+| fcn_frozen | 0.021 / 0.039 | **0.261 / 0.372** | 0.184 / 0.293 | -0.000 / 0.009 | -0.005 / 0.005 | 0.182 / 0.290 |
+| fcn_random | 0.006 / 0.014 | **0.238 / 0.317** | 0.164 / 0.218 | -0.003 / 0.004 | -0.006 / 0.003 | 0.164 / 0.220 |
+| fcn_unfrozen | 0.027 / 0.039 | **0.336 / 0.376** | 0.241 / 0.288 | 0.000 / 0.007 | -0.005 / 0.003 | 0.242 / 0.288 |
+| unet3d | 0.008 / 0.017 | **0.309 / 0.346** | 0.211 / 0.238 | 0.001 / 0.005 | -0.005 / 0.001 | 0.216 / 0.242 |
+
+Offset -1 fits best for all four models. Compared with offset 0, kappa rises by 0.07-0.10 and Harvest
+F1 by 0.08-0.10, with both Harvest recall and precision higher. +1 and +2 are at chance (kappa
+~0) and -2 is near it, so the signal is tied to one year. Restricting offset 0 to the all-5 cells
+moves kappa and Harvest F1 by <= 0.005, so the gain is not a cell-set effect. Harvest recall,
+precision, Development F1 and Insect/Disease F1 per model and offset are in
+year_offset_metrics.csv.
+
+Caveats:
+- The restricted (all-5 cells) comparison was computed for offset 0 only; offset -1 uses 322
+  cells, not 311. Given how little the restriction moves offset 0, the ranking should hold.
+- Development F1 favours -1 for three models; for unet3d it is 0.070 at offset 0 vs 0.064 at -1
+  (0.076 at 0 on the all-5 cells). Insect/Disease F1 is <= ~0.02 at every offset, too small to
+  discriminate.
+- Only the any_year mask was run (not unmasked). Reference selection is still the provisional
+  seeded dedup, and there are no CIs here.
+- A best-fit offset of -1 means the chip years Y-1..Y+2 cover target-2..target+1. This is
+  consistent with the label year being defined one year earlier than the reference target year.
+  The diagnostic does not establish the definition.
+
+Decision: PRITHVI_YEAR_RULE stays "target" in prithvi_loader.py until the Prithvi label-year
+definition is confirmed. The --prithvi results above are unchanged.
+
+Independent chip check: all 7,056 chips are float32 and none contains NaN. Pixels where all six
+bands are zero vary strongly by year within a chip. For example, cell 00173 (label year 2018) has
+46 to 13,649 such pixels per year (2479, 46, 621, 13,649 for Y-1..Y+2). Partial zeros (some bands
+zero, not all) stay at ~120-320 per year (124, 171, 120, 316). This is consistent with missing
+input stored as 0 rather than NaN.
+
+Run command (from the repo root; writes check_landsat/reports/prithvi_year_offset/):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_year_offset.py
