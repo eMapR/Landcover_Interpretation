@@ -14,7 +14,19 @@ of collapsed_5class_confusion.py (1 Stable, 2 Harvest, 3 Development, 4 Insect/D
 gets its own code AGRICULTURE (6), since its meaning is to be confirmed, and Beaver (5) is never
 produced. align_to_reference() then puts the codes on a reference raster's own grid by centre-based
 lookup: each reference pixel takes the Prithvi pixel under its centre, or NODATA (0) when there is
-none. The Prithvi grid sits ~9.1 m east of the reference grid, so no resampling choice is involved.
+none.
+
+Grid offset (known limitation, documented 2026-11-05): the Prithvi grid is offset 9.10 m east and
+0.07 m north of the 30 m reference grid, identically on every tile (measured on all 28,224 outputs).
+The Prithvi pixel under a reference pixel's centre therefore overlaps that reference pixel by about
+70% of its area. Near class boundaries, especially at small change patches such as harvests, some
+disagreement may come from the grid offset rather than the model. Because both grids have 30 m
+pixels, centre-based lookup is equivalent to nearest-neighbour resampling (confirmed by the 72/72
+spot check against rasterio reproject with nearest). Interpolating the class codes was not used
+because it would create meaningless class values; interpolating the probabilities before taking the
+argmax would be a valid alternative that accounts for the partial overlap, but it smooths
+neighbouring predictions. Decision: keep centre-based lookup and document the limitation (see
+docs/landsat_migration_log.md).
 
 Settings (TO BE CONFIRMED / PROVISIONAL, see docs/landsat_migration_log.md):
   PRITHVI_YEAR_RULE      "target": the Prithvi label year is the reference target year.

@@ -571,6 +571,17 @@ def main_prithvi():
         "agriculture: Prithvi agriculture is kept out of the matrix (meaning TO BE CONFIRMED); its "
         "predictions are reported in side_agriculture.csv",
         f"CIs: {P_CI_NOTE} (ratio estimator with FPC = 1; cell bootstrap seed {SEED}, {BOOT} draws)",
+        "grid offset: the Prithvi grid is offset 9.10 m east and 0.07 m north of the reference "
+        "grid, identically on every tile (measured on all 28,224 outputs); each reference pixel "
+        "takes the Prithvi pixel under its centre, which overlaps it by about 70% of its area, so "
+        "near class boundaries, especially small change patches such as harvests, some disagreement "
+        "may come from the grid offset rather than the model; because both grids have 30 m pixels, "
+        "centre-based lookup is equivalent to nearest-neighbour resampling (confirmed by the 72/72 "
+        "spot check against rasterio reproject with nearest); interpolating the class codes was not "
+        "used because it would create meaningless class values; interpolating the probabilities "
+        "before taking the argmax would be a valid alternative that accounts for the partial "
+        "overlap, but it smooths neighbouring predictions; decision: keep centre-based lookup and "
+        "document the limitation",
         "", "pixel accounting (reference pixels, identical across models):"]
     provenance += [f"  {key}: {v:,}" for key, v in px.items()]
     with open(os.path.join(OUT, "reference.txt"), "w") as fh:

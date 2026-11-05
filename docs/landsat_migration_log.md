@@ -706,3 +706,34 @@ input stored as 0 rather than NaN.
 Run command (from the repo root; writes check_landsat/reports/prithvi_year_offset/):
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_year_offset.py
+
+## 2026-11-05: Prithvi Grid Offset Documented (Advisor Decision)
+
+Decision: keep the existing centre-based lookup in prithvi_loader.py and document the grid offset
+as a known limitation. Documentation only; no calculation changes.
+
+- The Prithvi grid is offset 9.10 m east and 0.07 m north of the 30 m reference grid (9.1021 m,
+  0.0729 m), identically on every tile. Measured on all 28,224 Prithvi outputs (2026-10-29) and
+  re-checked from the file headers on 2026-11-05; all 391 reference rasters sit on the 30 m grid.
+- Each reference pixel takes the Prithvi pixel under its centre. That pixel overlaps it by about
+  70% of its area ((30 - 9.10)/30 x (30 - 0.07)/30 = 69.5%).
+- So near class boundaries, especially at small change patches such as harvests, some
+  model-reference disagreement may come from the grid offset rather than the model.
+- Because both grids have 30 m pixels, centre-based lookup is equivalent to nearest-neighbour
+  resampling (confirmed by the 72/72 spot check against rasterio reproject with nearest).
+  Interpolating the class codes was not used because it would create meaningless class values;
+  interpolating the probabilities before taking the argmax would be a valid alternative that
+  accounts for the partial overlap, but it smooths neighbouring predictions.
+
+Changes: the prithvi_loader.py module docstring, and one new "grid offset:" line in the
+reference.txt provenance written by collapsed_5class_confusion.py --prithvi. It goes after the CIs
+line, so summary.txt and summary_by_variant.md, which quote the earlier provenance lines, are
+unchanged. The Sentinel-2 path is not touched.
+
+Check: re-ran --prithvi into check_offset_doc/. All 32 outputs have the same file list as
+check_landsat/reports/collapsed_5class_confusion/; 31 are byte-identical (cmp), including all 8
+PNGs. reference.txt differs only by the added "grid offset:" line (line 11).
+
+Run command (from the repo root):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_offset_doc /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
