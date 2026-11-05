@@ -819,3 +819,68 @@ Run commands (from the repo root):
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_year_rule /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
     # earlier target rule, for reproducibility:
     LCI_PRITHVI_YEAR_RULE=target LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=<scratch> /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+## 2026-11-05: Prithvi Reference Selection Kept (Seeded, Seed 42) With Sensitivity Analysis (Advisor Decision)
+
+Decision (advisor): keep the reproducible seeded selection (default_rng seed 42) of one
+interpretation per double-interpreted Landsat location for collapsed_5class_confusion.py --prithvi,
+with the sensitivity analysis documented. The selection is no longer listed as provisional. Still
+provisional: which years the zero-input mask covers (any_year default), and no FPC (Landsat frame
+size unknown). No calculation changes; the Sentinel-2 path is untouched.
+
+Code (wording only):
+- scripts/prithvi_dedup_check.py: new, a copy of the read-only check
+  check_landsat/dedup_check/dedup_check.py. Changes: outputs go to
+  $LCI_OUT_DIR/reports/prithvi_dedup_check/ (refuses to run without LCI_OUT_DIR; Landsat only, as
+  before), the import path points at scripts/, the docstring is updated, and the summary gets one
+  closing line naming offset -1 as the confirmed rule. The offsets stay explicit (-1 and 0, label
+  year = target + offset, zero-input mask any_year), independent of
+  prithvi_loader.PRITHVI_YEAR_RULE, so the new target_minus_1 default needed no adaptation.
+- scripts/collapsed_5class_confusion.py --prithvi: in reference.txt, summary.txt,
+  summary_by_variant.md, the docstring and the comments, "PROVISIONAL seeded dedup" becomes: "reproducible
+  seeded selection (seed 42) of one interpretation per double-interpreted location, kept per
+  decision; sensitivity analysis in scripts/prithvi_dedup_check.py: using the other reviewer's map
+  for all double-interpreted cells changes the results by at most 0.006. The best model stays the
+  same on every metric except Development F1, where fcn_unfrozen and unet3d are nearly tied (0.0006
+  apart) and swap places." The summaries' PROVISIONAL list drops "reference selection".
+
+Sensitivity analysis (method): 391 reference rasters, 362 locations; 29 locations have two
+interpretations (none has more): bekka+myscon 18, bekka+robert 6, myscon+robert 5. All pairs are on
+the same grid. Pick A = the seed-42 selection (the primary result); pick B = the same 362 cells,
+except every double-interpreted location uses the other reviewer's map. Both picks are scored with
+the --prithvi pipeline (argmax, centre lookup, zero-input mask any_year, 4x4 census with Beaver
+excluded and agriculture excluded from the primary matrix, metrics with undefined F1 = 0). The
+differences B - A are compared against pick A's 95% cell-bootstrap CI width (seed 42, 2000 draws),
+at offsets -1 and 0. 8 metrics: OA, kappa, macro-F1, Harvest recall/precision/F1, Development
+F1, Insect/Disease F1.
+
+Results:
+- Reviewer agreement on the 29 locations (5-class collapse, pixels valid in both maps): 0.993
+  overall (bekka+myscon 0.992, bekka+robert 0.991, myscon+robert 0.997); per location median
+  0.997, minimum 0.953. Most of the disagreement is in Harvest: bekka 1,673 vs myscon 963 px on
+  their 18 shared locations (bekka+robert 685 vs 455; myscon+robert 506 vs 639).
+- Largest |B - A| over the 64 entries (4 models x 8 metrics x 2 offsets): 0.0058 (fcn_frozen,
+  Harvest precision, offset 0); at the confirmed offset -1 it is 0.0050 (fcn_unfrozen, Harvest F1).
+  The largest |B - A| / CI width is 0.04; none of the 64 is above 0.25.
+- Pick A at offset -1 matches the committed check_year_rule/ masked results (within 5e-6, CSV
+  rounding), so the check describes the current primary results.
+- Best model (offset -1, the confirmed year rule): unchanged on every metric except Development
+  F1, where fcn_unfrozen (0.0650 -> 0.0630) and unet3d (0.0644 -> 0.0643), 0.0006 apart, swap
+  places. Full rankings changed for 1 of 8 metrics at offset -1.
+- Under the old target-year rule (offset 0), macro-F1 had a similar near-tie swap: unet3d and
+  fcn_unfrozen, 0.0001 apart (best model unet3d 0.3260 under pick A, fcn_unfrozen 0.3265 under pick B);
+  Insect/Disease F1 also reordered below first place (fcn_frozen vs unet3d, 0.0001 apart). Offset -1
+  is the confirmed rule; offset 0 is reported for reference only.
+
+Verification:
+- scripts/prithvi_dedup_check.py into check_dedup/ reproduces check_landsat/dedup_check/:
+  multi_interpreted_locations.csv and pick_A_vs_B_metrics.csv are byte-identical;
+  dedup_check_summary.md differs only by the added closing line about offset -1.
+- --prithvi re-run into check_year_rule2/: all 29 numeric CSVs and PNGs are byte-identical to
+  check_year_rule/; only reference.txt, summary.txt and summary_by_variant.md differ (selection
+  wording).
+
+Run commands (from the repo root):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_dedup /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_dedup_check.py
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_year_rule2 /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi

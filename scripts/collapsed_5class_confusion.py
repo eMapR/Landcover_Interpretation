@@ -39,8 +39,13 @@ Outputs -> reports/collapsed_5class_confusion/
 Landsat references instead of v2-v6, as a 4x4 census (Beaver excluded like Unknown; Prithvi
 agricultural change and the Beaver reference pixels go to side tables), masked by the zero-input
 setting and unmasked. Year rule: label year = reference target year - 1 (confirmed). Reference
-selection and which years the zero-input mask covers are provisional and the CIs carry no FPC
-(Landsat frame size unknown); see reference.txt. --truth is refused for any non-Sentinel-2 run.
+selection: reproducible seeded selection (seed 42) of one interpretation per double-interpreted
+location, kept per decision; sensitivity analysis in scripts/prithvi_dedup_check.py: using the other
+reviewer's map for all double-interpreted cells changes the results by at most 0.006. The best model
+stays the same on every metric except Development F1, where fcn_unfrozen and unet3d are nearly tied
+(0.0006 apart) and swap places. Which years the zero-input mask covers is provisional and the CIs
+carry no FPC (Landsat frame size unknown); see reference.txt. --truth is refused for any
+non-Sentinel-2 run.
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat \
         python scripts/collapsed_5class_confusion.py --prithvi
@@ -393,8 +398,10 @@ def _texci(s):
 # separately, per decision (side_agricultural_change.csv). Beaver reference pixels: side_beaver.csv.
 # An undefined F1 of a class present in the reference counts as 0 in F1 and macro-F1.
 # CONFIRMED (2026-11-05): year rule target_minus_1; missing input was 0 and the models saw 0.
-# PROVISIONAL choices, written into reference.txt: seeded dedup (no Landsat truth set), which years
-# the zero-input mask covers, and no FPC (Landsat frame size unknown).
+# KEPT per decision (2026-11-05): reproducible seeded selection (seed 42) of one interpretation per
+# double-interpreted location (no Landsat truth set); sensitivity analysis: scripts/prithvi_dedup_check.py.
+# PROVISIONAL choices, written into reference.txt: which years the zero-input mask covers, and no FPC
+# (Landsat frame size unknown).
 P_CLASSES = [1, 2, 3, 4]
 P_LABELS = [NAMES5[c] for c in P_CLASSES]
 P_PRED_NAMES = {1: "Stable", 2: "Harvest", 3: "Development", 4: "Insect/Disease",
@@ -403,6 +410,12 @@ P_REF_NAMES = {0: "Unknown/Fire (excluded)", **NAMES5}
 P_CI_NOTE = "no FPC, Landsat frame size unknown"
 ZERO_INPUT_NOTE = ("missing input was set to 0 in all bands and 0 was used as missing, so the "
                    "models saw 0 (the README's NaN -> -1 step did not apply)")
+SELECTION_NOTE = ("reproducible seeded selection (seed {SEED}) of one interpretation per "
+                  "double-interpreted location, kept per decision; sensitivity analysis in "
+                  "scripts/prithvi_dedup_check.py: using the other reviewer's map for all "
+                  "double-interpreted cells changes the results by at most 0.006. The best model "
+                  "stays the same on every metric except Development F1, where fcn_unfrozen and "
+                  "unet3d are nearly tied (0.0006 apart) and swap places").format(SEED=SEED)
 AGRI_NOTE = ("agricultural change (no reference counterpart); excluded from the primary matrix and "
              "reported separately, per decision")
 
@@ -470,7 +483,7 @@ def main_prithvi():
     os.makedirs(OUT, exist_ok=True)
     masks = [PL.PRITHVI_ZERO_INPUT] + (["none"] if PL.PRITHVI_ZERO_INPUT != "none" else [])
     cells = deduped_cells()
-    print(f"de-duplicated reference cells (seed {SEED}, provisional): {len(cells)}")
+    print(f"de-duplicated reference cells (reproducible seeded selection, seed {SEED}): {len(cells)}")
 
     # per model and mask: per-cell 4x4 matrices and side-table tallies
     cms = {(m, k): [] for m in PL.PRITHVI_MODELS for k in masks}
@@ -566,8 +579,7 @@ def main_prithvi():
     pd.DataFrame(beaver_rows).to_csv(os.path.join(OUT, "side_beaver.csv"), index=False)
     provenance = [
         f"reference: Landsat interpreted rasters under {RF_DIR} (sensor {SC.SENSOR})",
-        f"reference selection: PROVISIONAL seeded dedup (default_rng seed {SEED}), one "
-        f"interpretation per location; no Landsat truth set exists",
+        f"reference selection: {SELECTION_NOTE}; no Landsat truth set exists",
         f"cells: {len(cells)} after dedup, {len(scored)} scored, {len(missing)} without a Prithvi "
         f"output (no_prithvi_match.csv)",
         f"map field: Prithvi outputs {PL.OUTPUTS_DIR}/<label_year>/<model>/<cell_id>.tif, argmax, "
@@ -602,7 +614,7 @@ def main_prithvi():
     cols = ["model", "mask", "cells", "valid_px", "baseline_OA", "OA", "kappa", "macro_F1",
             "mean_IoU", "F1 Harvest", "F1 Development", "F1 Insect/Disease"]
     md = ["# Prithvi collapsed census (Landsat): per-model summary", "",
-          "PROVISIONAL (reference selection, zero-input mask years, no FPC). " + " ".join(l for l in provenance[1:10] if l) + "", "",
+          "PROVISIONAL (zero-input mask years, no FPC). " + " ".join(l for l in provenance[1:10] if l) + "", "",
           "OA is dominated by the Stable class (all-Stable baseline shown). OA CI: ratio estimator; "
           "kappa, macro-F1, mean IoU and F1 CIs: cell bootstrap. 95% CIs, " + P_CI_NOTE + ".", "",
           "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
@@ -614,7 +626,7 @@ def main_prithvi():
         fh.write("\n".join(md) + "\n")
 
     lines = ["Prithvi collapsed 4-class census (model vs Landsat interpreted reference), PROVISIONAL "
-             "(reference selection, zero-input mask years, no FPC)",
+             "(zero-input mask years, no FPC)",
              *provenance[1:10], "",
              f"{'model':28}{'mask':10}{'cells':>6}{'OA':>8}{'all-Stable':>12}{'kappa':>8}"
              f"{'macro-F1':>10}{'F1 Harv':>9}{'F1 Dev':>8}{'F1 I/D':>8}"]
