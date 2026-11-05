@@ -11,8 +11,8 @@ the output cell plus 56 px of context, 4 years x 6 bands).
 read_probs() refuses any file that is not exactly that 5-band probability stack, so the bands can
 never be read as class codes. collapsed_argmax() takes the argmax and maps it to the collapsed codes
 of collapsed_5class_confusion.py (1 Stable, 2 Harvest, 3 Development, 4 Insect/Disease); agriculture
-gets its own code AGRICULTURE (6), since its meaning is to be confirmed, and Beaver (5) is never
-produced. align_to_reference() then puts the codes on a reference raster's own grid by centre-based
+gets its own code AGRICULTURE (6): agricultural change (no reference counterpart); excluded from the
+primary matrix and reported separately, per decision. Beaver (5) is never produced. align_to_reference() then puts the codes on a reference raster's own grid by centre-based
 lookup: each reference pixel takes the Prithvi pixel under its centre, or NODATA (0) when there is
 none.
 
@@ -28,14 +28,24 @@ argmax would be a valid alternative that accounts for the partial overlap, but i
 neighbouring predictions. Decision: keep centre-based lookup and document the limitation (see
 docs/landsat_migration_log.md).
 
-Settings (TO BE CONFIRMED / PROVISIONAL, see docs/landsat_migration_log.md):
-  PRITHVI_YEAR_RULE      "target": the Prithvi label year is the reference target year.
+Settings (see docs/landsat_migration_log.md):
+  PRITHVI_YEAR_RULE      "target_minus_1" (default). Year rule (confirmed, 2026-11-05): label year =
+                         reference target year - 1. A chip covering
+                         2001-2004 has label year 2002 and its change happened between 2002 and 2003;
+                         our reference target year is the year the change is visible (2003). This
+                         matches scripts/prithvi_year_offset.py (offset -1 best for all four models).
+                         "target" (label year = reference target year) is superseded and kept only so
+                         the earlier run stays reproducible.
   PRITHVI_ZERO_INPUT     which pixels to mask because their input is all-zero (all 6 bands) in the
                          chip: "any_year" (any of the 4 input years, the default), "label_year", or
-                         "none". The chips store missing input as 0, not NaN; whether inference
-                         turned those 0s into NaN/-1 is unknown.
+                         "none". Zero input (confirmed): missing input was set to 0 in all
+                         bands and 0 was used as missing, so the models saw 0 (the README's
+                         NaN -> -1 step did not apply). Which years to mask stays PROVISIONAL.
+  Agriculture            agriculture (confirmed): the agriculture band is agricultural change, not
+                         stable agricultural land.
 
     LCI_PRITHVI_ROOT=/path/to/prithvi_change_results  overrides PRITHVI_ROOT.
+    LCI_PRITHVI_YEAR_RULE=target                      overrides PRITHVI_YEAR_RULE.
 """
 
 import functools
@@ -54,13 +64,21 @@ CHIPS_DIR = os.path.join(PRITHVI_ROOT, "chips")
 PRITHVI_MODELS = ["fcn_frozen_encoder_q1_w2", "fcn_random_encoder_q1_w2",
                   "fcn_unfrozen_encoder_q1_w2", "unet3d_q1_w2"]
 
-PRITHVI_YEAR_RULE = "target"            # TO BE CONFIRMED: label year = reference target year
+# year rule -> (label-year offset from the reference target year, status)
+YEAR_RULES = {
+    "target_minus_1": (-1, "confirmed 2026-11-05 (matches the offset -1 diagnostic)"),
+    "target": (0, "superseded 2026-11-05, kept for reproducibility"),
+}
+PRITHVI_YEAR_RULE = os.environ.get("LCI_PRITHVI_YEAR_RULE", "target_minus_1")
+if PRITHVI_YEAR_RULE not in YEAR_RULES:
+    raise ValueError(f"unknown PRITHVI_YEAR_RULE {PRITHVI_YEAR_RULE!r}, expected one of {list(YEAR_RULES)}")
 PRITHVI_ZERO_INPUT = "any_year"         # PROVISIONAL: "any_year", "label_year" or "none"
 ZERO_INPUT_RULES = ("any_year", "label_year", "none")
 
 PRITHVI_BANDS = ("agriculture", "development", "harvest", "insect_disease_defo", "background")
 NODATA = 0
-AGRICULTURE = 6                         # TO BE CONFIRMED: kept out of the 5-class scheme
+AGRICULTURE = 6                         # agricultural change (no reference counterpart); excluded
+                                        # from the primary matrix and reported separately, per decision
 # band index (argmax) -> collapsed code: agriculture, development, harvest, insect, background
 PRITHVI_COLLAPSE = np.array([AGRICULTURE, 3, 2, 4, 1], np.uint8)
 
@@ -75,9 +93,12 @@ LABEL_YEAR_INDEX = 1                    # Y sits at index 1 of the 4 chip years
 
 def label_year(target_year):
     """Prithvi label year for a reference target year, under PRITHVI_YEAR_RULE."""
-    if PRITHVI_YEAR_RULE == "target":
-        return int(target_year)
-    raise ValueError(f"unknown PRITHVI_YEAR_RULE {PRITHVI_YEAR_RULE!r}")
+    return int(target_year) + YEAR_RULES[PRITHVI_YEAR_RULE][0]
+
+
+def available_label_years():
+    """Sorted label years that have a per-year folder under OUTPUTS_DIR."""
+    return sorted(int(d) for d in os.listdir(OUTPUTS_DIR) if re.fullmatch(r"\d{4}", d))
 
 
 def prithvi_path(model, year, cell_id):

@@ -9,6 +9,9 @@ Unknown, Fire excluded; agriculture out of the matrix), metrics_f1_zero. A cell 
 offset when no output exists for that year. Also reports offset 0 restricted to the cells that
 have all five offsets.
 
+Offset -1 is now the confirmed year rule (prithvi_loader.PRITHVI_YEAR_RULE = "target_minus_1",
+2026-11-05); this diagnostic sets the label year explicitly and does not depend on that setting.
+
 Outputs -> $LCI_OUT_DIR/reports/prithvi_year_offset/ (refuses to run without LCI_OUT_DIR, so it
 cannot write into the Sentinel-2 reports/):
   - year_offset_metrics.csv          per model x offset (+ offset 0 on the all-5 cells)

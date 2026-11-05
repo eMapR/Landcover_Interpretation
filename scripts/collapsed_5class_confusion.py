@@ -37,8 +37,9 @@ Outputs -> reports/collapsed_5class_confusion/
 
 --prithvi (Landsat): scores the four Prithvi models (scripts/prithvi_loader.py) against the 30 m
 Landsat references instead of v2-v6, as a 4x4 census (Beaver excluded like Unknown; Prithvi
-agriculture and the Beaver reference pixels go to side tables), masked by the zero-input setting
-and unmasked. Reference selection, year rule and mask are provisional and the CIs carry no FPC
+agricultural change and the Beaver reference pixels go to side tables), masked by the zero-input
+setting and unmasked. Year rule: label year = reference target year - 1 (confirmed). Reference
+selection and which years the zero-input mask covers are provisional and the CIs carry no FPC
 (Landsat frame size unknown); see reference.txt. --truth is refused for any non-Sentinel-2 run.
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat \
@@ -387,19 +388,23 @@ def _texci(s):
 
 # ----------------------------------------------------------------------------- Prithvi (Landsat)
 # --prithvi: the four Prithvi models (prithvi_loader.py) against the 30 m Landsat references.
-# Beaver (no Prithvi class) is excluded like Unknown, so the matrix is 4x4; Prithvi agriculture
-# (meaning TO BE CONFIRMED) and the Beaver reference pixels are reported in side tables.
+# Beaver (no Prithvi class) is excluded like Unknown, so the matrix is 4x4; Prithvi agriculture is
+# agricultural change (no reference counterpart); excluded from the primary matrix and reported
+# separately, per decision (side_agricultural_change.csv). Beaver reference pixels: side_beaver.csv.
 # An undefined F1 of a class present in the reference counts as 0 in F1 and macro-F1.
-# PROVISIONAL choices, written into reference.txt: seeded dedup (no Landsat truth set), year rule,
-# zero-input mask, and no FPC (Landsat frame size unknown).
+# CONFIRMED (2026-11-05): year rule target_minus_1; missing input was 0 and the models saw 0.
+# PROVISIONAL choices, written into reference.txt: seeded dedup (no Landsat truth set), which years
+# the zero-input mask covers, and no FPC (Landsat frame size unknown).
 P_CLASSES = [1, 2, 3, 4]
 P_LABELS = [NAMES5[c] for c in P_CLASSES]
 P_PRED_NAMES = {1: "Stable", 2: "Harvest", 3: "Development", 4: "Insect/Disease",
-                6: "Agriculture (TBC)"}
+                6: "Agricultural change"}
 P_REF_NAMES = {0: "Unknown/Fire (excluded)", **NAMES5}
 P_CI_NOTE = "no FPC, Landsat frame size unknown"
-ZERO_INPUT_QUESTION = ("chips store missing input as 0; unknown whether inference converted 0 to "
-                       "NaN/-1, or whether these are the chip files used for inference")
+ZERO_INPUT_NOTE = ("missing input was set to 0 in all bands and 0 was used as missing, so the "
+                   "models saw 0 (the README's NaN -> -1 step did not apply)")
+AGRI_NOTE = ("agricultural change (no reference counterpart); excluded from the primary matrix and "
+             "reported separately, per decision")
 
 
 def metrics_f1_zero(M):
@@ -473,6 +478,7 @@ def main_prithvi():
     beaver = {(m, k): np.zeros(PL.AGRICULTURE + 1, np.int64) for m in PL.PRITHVI_MODELS for k in masks}
     px = defaultdict(int)          # pixel accounting, identical across models
     missing, scored = [], []
+    avail_years = PL.available_label_years()
     for cell in cells:
         cell_id, target, reviewer = PL.parse_reference(cell)
         with rasterio.open(cell) as ds:
@@ -481,8 +487,12 @@ def main_prithvi():
         if any(v is None for v in loaded.values()):
             if not all(v is None for v in loaded.values()):
                 raise RuntimeError(f"{cell}: Prithvi output present for only some models")
+            ly = PL.label_year(target)
+            reason = (f"label year {ly} outside available outputs "
+                      f"({avail_years[0]}-{avail_years[-1]})" if ly not in avail_years
+                      else "no output for this cell in label year")
             missing.append(dict(cell_id=cell_id, target_year=target, reviewer=reviewer,
-                                label_year=PL.label_year(target), reference=os.path.basename(cell)))
+                                label_year=ly, reason=reason, reference=os.path.basename(cell)))
             continue
         _, zero, year, _ = loaded[PL.PRITHVI_MODELS[0]]
         scored.append(dict(cell_id=cell_id, target_year=target, label_year=year, reviewer=reviewer,
@@ -512,7 +522,7 @@ def main_prithvi():
     pd.DataFrame(missing).to_csv(os.path.join(OUT, "no_prithvi_match.csv"), index=False)
     pd.DataFrame(scored).to_csv(os.path.join(OUT, "scored_cells.csv"), index=False)
     print(f"  scored {len(scored)}, no Prithvi output for {len(missing)} "
-          f"(year rule {PL.PRITHVI_YEAR_RULE!r}, TO BE CONFIRMED)")
+          f"(year rule {PL.PRITHVI_YEAR_RULE!r}, {PL.YEAR_RULES[PL.PRITHVI_YEAR_RULE][1]})")
 
     long_rows, summary, agri_rows, beaver_rows = [], [], [], []
     for m in PL.PRITHVI_MODELS:
@@ -543,7 +553,7 @@ def main_prithvi():
                                    for c in P_CLASSES[1:]}))
             for c, v in enumerate(agri[(m, k)]):
                 agri_rows.append(dict(model=m, mask=k, reference=P_REF_NAMES[c],
-                                      predicted_agriculture_px=int(v)))
+                                      predicted_agricultural_change_px=int(v)))
             for c, name in P_PRED_NAMES.items():
                 beaver_rows.append(dict(model=m, mask=k, predicted=name,
                                         beaver_reference_px=int(beaver[(m, k)][c])))
@@ -552,7 +562,7 @@ def main_prithvi():
                   f"macroF1={pt['macro_F1']:.3f}")
 
     pd.DataFrame(long_rows).to_csv(os.path.join(OUT, "metrics_long.csv"), index=False)
-    pd.DataFrame(agri_rows).to_csv(os.path.join(OUT, "side_agriculture.csv"), index=False)
+    pd.DataFrame(agri_rows).to_csv(os.path.join(OUT, "side_agricultural_change.csv"), index=False)
     pd.DataFrame(beaver_rows).to_csv(os.path.join(OUT, "side_beaver.csv"), index=False)
     provenance = [
         f"reference: Landsat interpreted rasters under {RF_DIR} (sensor {SC.SENSOR})",
@@ -562,14 +572,16 @@ def main_prithvi():
         f"output (no_prithvi_match.csv)",
         f"map field: Prithvi outputs {PL.OUTPUTS_DIR}/<label_year>/<model>/<cell_id>.tif, argmax, "
         f"then centre-based lookup onto each reference grid (no Prithvi pixel under the centre = nodata)",
-        f"year rule: {PL.PRITHVI_YEAR_RULE} (label year = reference target year), TO BE CONFIRMED",
+        f"year rule: {PL.PRITHVI_YEAR_RULE} (label year = reference target year "
+        f"{PL.YEAR_RULES[PL.PRITHVI_YEAR_RULE][0]:+d}), {PL.YEAR_RULES[PL.PRITHVI_YEAR_RULE][1]}",
         f"zero-input mask: {PL.PRITHVI_ZERO_INPUT} (pixels whose chip input is all-zero in any of "
-        f"the 4 years are masked), PROVISIONAL; the unmasked result is reported alongside",
-        f"open question: {ZERO_INPUT_QUESTION}",
+        f"the 4 years are masked), which years to mask PROVISIONAL; the unmasked result is "
+        f"reported alongside",
+        f"zero input (confirmed): {ZERO_INPUT_NOTE}",
         "classes: 4x4 (Stable, Harvest, Development, Insect/Disease); Unknown, Fire and Beaver "
         "reference pixels excluded; Beaver reference pixels reported in side_beaver.csv",
-        "agriculture: Prithvi agriculture is kept out of the matrix (meaning TO BE CONFIRMED); its "
-        "predictions are reported in side_agriculture.csv",
+        f"agriculture: Prithvi agriculture is {AGRI_NOTE}; its predictions are reported in "
+        "side_agricultural_change.csv",
         f"CIs: {P_CI_NOTE} (ratio estimator with FPC = 1; cell bootstrap seed {SEED}, {BOOT} draws)",
         "grid offset: the Prithvi grid is offset 9.10 m east and 0.07 m north of the reference "
         "grid, identically on every tile (measured on all 28,224 outputs); each reference pixel "
@@ -590,7 +602,7 @@ def main_prithvi():
     cols = ["model", "mask", "cells", "valid_px", "baseline_OA", "OA", "kappa", "macro_F1",
             "mean_IoU", "F1 Harvest", "F1 Development", "F1 Insect/Disease"]
     md = ["# Prithvi collapsed census (Landsat): per-model summary", "",
-          "PROVISIONAL. " + " ".join(l for l in provenance[1:10] if l) + "", "",
+          "PROVISIONAL (reference selection, zero-input mask years, no FPC). " + " ".join(l for l in provenance[1:10] if l) + "", "",
           "OA is dominated by the Stable class (all-Stable baseline shown). OA CI: ratio estimator; "
           "kappa, macro-F1, mean IoU and F1 CIs: cell bootstrap. 95% CIs, " + P_CI_NOTE + ".", "",
           "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
@@ -601,7 +613,8 @@ def main_prithvi():
     with open(os.path.join(OUT, "summary_by_variant.md"), "w") as fh:
         fh.write("\n".join(md) + "\n")
 
-    lines = ["Prithvi collapsed 4-class census (model vs Landsat interpreted reference), PROVISIONAL",
+    lines = ["Prithvi collapsed 4-class census (model vs Landsat interpreted reference), PROVISIONAL "
+             "(reference selection, zero-input mask years, no FPC)",
              *provenance[1:10], "",
              f"{'model':28}{'mask':10}{'cells':>6}{'OA':>8}{'all-Stable':>12}{'kappa':>8}"
              f"{'macro-F1':>10}{'F1 Harv':>9}{'F1 Dev':>8}{'F1 I/D':>8}"]
@@ -611,7 +624,7 @@ def main_prithvi():
         lines.append(f"{r['model']:28}{r['mask']:10}{r['cells']:>6}{f[0]:>8.3f}{r['baseline_OA']:>12.3f}"
                      f"{f[1]:>8.3f}{f[2]:>10.3f}{f[3]:>9.3f}{f[4]:>8.3f}{f[5]:>8.3f}")
     lines += ["", "Full per-class precision/recall/F1/IoU with CIs in metrics_long.csv; Prithvi "
-              "agriculture in side_agriculture.csv; Beaver reference pixels in side_beaver.csv."]
+              "agricultural change in side_agricultural_change.csv; Beaver reference pixels in side_beaver.csv."]
     with open(os.path.join(OUT, "summary.txt"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
     print("\n" + "\n".join(lines))

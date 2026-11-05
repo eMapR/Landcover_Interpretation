@@ -737,3 +737,85 @@ PNGs. reference.txt differs only by the added "grid offset:" line (line 11).
 Run command (from the repo root):
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_offset_doc /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+## 2026-11-05: Prithvi Year Rule Confirmed (target - 1) and Agriculture Handling (Advisor Decisions)
+
+Decisions (advisor):
+
+1. Use the confirmed one-year offset for Prithvi: label year = reference target year - 1.
+2. Agriculture: exclude it from the primary change-class matrix and report it separately.
+
+Confirmed points:
+
+- Year: for a chip covering 2001, 2002, 2003, 2004 the label year is 2002 and the change happened
+  between 2002 and 2003. Our reference target year is the year the change is visible (2003), so
+  the Prithvi label year = reference target year - 1. This matches the label-year offset
+  diagnostic (scripts/prithvi_year_offset.py, 2026-10-29): offset -1 fit best for all four models.
+- Zero input: missing input was set to 0 in all bands and 0 was used as missing, so the models saw
+  0. The README's NaN -> -1 step did not apply. This closes the zero-input open question
+  (the zero-input entries of 2026-10-29 are left as the historical record).
+- Agriculture: the agriculture band is a change class (agricultural change), not stable
+  agricultural land.
+
+Changes (Prithvi code only):
+
+- scripts/prithvi_loader.py: new YEAR_RULES table, with "target_minus_1" (offset -1, CONFIRMED,
+  now the default PRITHVI_YEAR_RULE) and "target" (offset 0, superseded, kept so the earlier run
+  stays reproducible); LCI_PRITHVI_YEAR_RULE=target selects it without editing code. New helper
+  available_label_years(). Docstring and comments: year rule, zero-input meaning and agriculture
+  marked confirmed; "which years the zero-input mask covers" stays PROVISIONAL.
+- scripts/collapsed_5class_confusion.py, --prithvi only (module docstring paragraph and the
+  Prithvi section): the open-question line in reference.txt becomes "zero input (confirmed): ...";
+  the year-rule line names the rule and its status; agriculture is labelled "agricultural change
+  (no reference counterpart); excluded from the primary matrix and reported separately, per
+  decision". Renamed side_agriculture.csv -> side_agricultural_change.csv and column
+  predicted_agriculture_px -> predicted_agricultural_change_px; side_beaver.csv label
+  "Agriculture (TBC)" -> "Agricultural change". no_prithvi_match.csv gains a reason column.
+- scripts/prithvi_year_offset.py: one docstring sentence noting offset -1 is now the confirmed
+  rule. No calculation change; not re-run.
+- Sentinel-2 path unaffected: every changed line of collapsed_5class_confusion.py is in the
+  --prithvi docstring paragraph or the Prithvi section (main_prithvi and its constants);
+  prithvi_loader.py is imported only by --prithvi and the offset diagnostic.
+
+Checks:
+
+- Reproducibility: LCI_PRITHVI_YEAR_RULE=target re-run (scratch folder) against
+  check_landsat/reports/collapsed_5class_confusion/: all 16 confusion CSVs, metrics_long.csv,
+  scored_cells.csv and all 8 PNGs byte-identical. no_prithvi_match.csv, side_agriculture.csv
+  (now side_agricultural_change.csv) and side_beaver.csv differ only by the new reason column
+  and the intended renames; their values are identical.
+- New run against the offset -1 row of the year-offset diagnostic (mask any_year): cells with
+  output 322, cells scored 312, valid px 3,470,355, kappa and Harvest F1 identical to 5 dp for all
+  four models.
+- All 8 new confusion PNGs read back: no text overlaps borders, boxes or arrows.
+
+Results (check_year_rule/reports/collapsed_5class_confusion/; 95% CIs: OA ratio estimator,
+others cell bootstrap, no FPC):
+
+| model | mask | cells | OA | kappa | macro-F1 | F1 Harvest | kappa (old, target) | F1 Harvest (old, target) |
+|---|---|---:|---|---|---|---|---|---|
+| fcn_frozen | any_year | 312 | 0.979 | 0.261 (0.200-0.319) | 0.351 | 0.372 (0.289-0.451) | 0.184 | 0.293 |
+| fcn_frozen | none | 322 | 0.980 | 0.257 (0.200-0.309) | 0.350 | 0.373 (0.290-0.445) | 0.180 | 0.291 |
+| fcn_random | any_year | 312 | 0.980 | 0.238 (0.176-0.297) | 0.334 | 0.317 (0.239-0.393) | 0.164 | 0.218 |
+| fcn_random | none | 322 | 0.981 | 0.232 (0.175-0.287) | 0.333 | 0.319 (0.243-0.388) | 0.161 | 0.215 |
+| fcn_unfrozen | any_year | 312 | 0.986 | 0.336 (0.263-0.405) | 0.364 | 0.376 (0.296-0.451) | 0.241 | 0.288 |
+| fcn_unfrozen | none | 322 | 0.987 | 0.333 (0.262-0.395) | 0.362 | 0.376 (0.298-0.445) | 0.242 | 0.289 |
+| unet3d | any_year | 312 | 0.986 | 0.309 (0.230-0.384) | 0.355 | 0.346 (0.257-0.429) | 0.211 | 0.238 |
+| unet3d | none | 322 | 0.987 | 0.304 (0.232-0.375) | 0.352 | 0.339 (0.254-0.416) | 0.213 | 0.239 |
+
+Old target-rule runs scored 326 (masked) / 337 (unmasked) cells. Under target - 1, 322 of the 362
+de-duplicated cells have an output and 40 are listed in no_prithvi_match.csv: 16 with target 2004
+(label year 2003, outside the available outputs 2004-2024) and 24 with no output for the cell in
+its label year (target 2005: 7, 2009: 6, 2016: 5, 2017: 4, 2014: 2). Agricultural change is never
+the argmax: 0 px for every model and mask, under both year rules, so side_agricultural_change.csv
+is all zeros.
+
+Still open / provisional: reference selection (seeded dedup, seed 42; no Landsat truth set);
+which years the zero-input mask covers (any_year default; label_year and none available); no FPC
+(Landsat frame size unknown).
+
+Run commands (from the repo root):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_year_rule /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+    # earlier target rule, for reproducibility:
+    LCI_PRITHVI_YEAR_RULE=target LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=<scratch> /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
