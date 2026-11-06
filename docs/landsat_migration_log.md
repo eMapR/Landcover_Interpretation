@@ -983,3 +983,48 @@ Results (masked, the main run; 312 cells, 3,470,355 px):
 Run command (from the repo root):
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_eval/eval /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+## 2026-11-06: Prithvi Evaluation Summary: Grid-Offset Line and Undefined-Draws Footnote
+
+Two follow-ups to the evaluation outputs, from a code review. Only evaluation_summary.txt/.md
+change; every other output is byte-identical.
+
+What changed (collapsed_5class_confusion.py):
+- Grid offset: evaluation_summary.txt/.md now include the grid-offset limitation line (Prithvi
+  grid 9.10 m east / 0.07 m north of the reference grid; centre lookup, about 70% overlap),
+  placed right after "map field". The provenance lines are now selected by label (the text
+  before the first ": ") via EVAL_PROVENANCE and _provenance_lines() instead of by position
+  (provenance[1:9]); _provenance_lines() raises if a label is missing or duplicated, so adding or
+  reordering provenance lines cannot silently drop one. The census "CIs" line stays out (the
+  evaluation summary has its own bootstrap CI text). summary.txt, summary_by_variant.md and
+  reference.txt are unchanged (they keep provenance[1:10]).
+- Undefined draws: a footnote in section 4 explains that draws where a metric is undefined (e.g.
+  UA of a rare class with no predictions in the resampled cells) are left out by nanpercentile,
+  so such a CI rests on fewer than 2000 draws. Its last sentence is computed at run time: either
+  "all 2000 draws were defined for every one of the N CIs", or the number of CIs below 2000 with
+  a table (file, model, mask, metric, defined draws).
+- bootstrap_cis() and paired_bootstrap_diff() get an optional defined= argument (default None,
+  existing behaviour unchanged): a dict passed in is filled with the number of defined draws per
+  metric; the return value and the random draws are unchanged.
+- No new CSV columns: the eval_*.csv files are unchanged.
+
+Probe (unchanged script, wrapper counting NaN draws, check_eval2/probe/): all 2000 draws were
+defined for every CI (688 bootstrapped metrics across 44 bootstrap calls), so no current CI
+dropped any draws. The evaluation summary reports 312 CIs, all on 2000 draws.
+
+Verification (all runs into check_eval2/):
+- check_eval2/eval/ vs check_eval/eval/ (sha256), same 61 files: the 32 census files, the 24
+  binary files (8 PNGs, 16 CSVs) and the 3 eval_*.csv are byte-identical; evaluation_summary.txt
+  and .md differ only by the two insertions (the grid-offset line and the footnote paragraph).
+- Synthetic checks: bootstrap_cis (default metrics() on 5x5 matrices, and metrics_f1_zero) and
+  paired_bootstrap_diff give identical results with and without defined=; with a rare class the
+  counts fall below 2000 (UA defined in 1729 of 2000 draws); _provenance_lines() returns the lines
+  in EVAL_PROVENANCE order and raises on a missing or duplicated label; the footnote fallback
+  (fewer than 2000 draws, with its table) renders correctly in a synthetic write_evaluation() run
+  (check_eval2/synthetic/).
+
+The change affects only the --prithvi (Landsat) evaluation outputs; the Sentinel-2 path is unchanged (the shared bootstrap function behaves identically by default, confirmed by an equivalence check).
+
+Run command (from the repo root):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_eval2/eval /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi

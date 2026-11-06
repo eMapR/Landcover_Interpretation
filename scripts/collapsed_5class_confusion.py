@@ -261,8 +261,10 @@ def ratio_cis(cms, n, N):
     return out
 
 
-def bootstrap_cis(cms, n, seed=SEED, B=BOOT, metrics_fn=metrics):
-    """Cell-level bootstrap CIs for every metric (cross-check; no FPC, so slightly wider)."""
+def bootstrap_cis(cms, n, seed=SEED, B=BOOT, metrics_fn=metrics, defined=None):
+    """Cell-level bootstrap CIs for every metric (cross-check; no FPC, so slightly wider).
+    Draws where a metric is undefined (NaN) are left out of its percentiles; pass a dict as
+    `defined` to get {metric: number of defined draws} (the return value is unchanged)."""
     rng = np.random.default_rng(seed)
     keys = list(metrics_fn(cms.sum(0)).keys())
     acc = {k: np.empty(B) for k in keys}
@@ -271,6 +273,8 @@ def bootstrap_cis(cms, n, seed=SEED, B=BOOT, metrics_fn=metrics):
         m = metrics_fn(cms[idx].sum(0))
         for k in keys:
             acc[k][b] = m[k]
+    if defined is not None:
+        defined.update({k: int(np.isfinite(v).sum()) for k, v in acc.items()})
     return {k: (np.nanpercentile(v, 2.5), np.nanpercentile(v, 97.5)) for k, v in acc.items()}
 
 
@@ -502,12 +506,13 @@ def prithvi_binary_tallies(rf, codes, keep):
     return out[0], out[1]
 
 
-def paired_bootstrap_diff(mats_a, mats_b, fns, seed=SEED, B=BOOT):
+def paired_bootstrap_diff(mats_a, mats_b, fns, seed=SEED, B=BOOT, defined=None):
     """Paired cell bootstrap of fn(model a) - fn(model b): in each draw the SAME resampled cells
     (rows of per-cell arrays aligned by cell_id) are pooled for both models.
     mats_a / mats_b: {matrix_key: (n, k, k) per-cell array}, same n and cell order for both.
     fns: {metric: (matrix_key, fn)}, fn maps a pooled matrix to a scalar.
-    Returns {metric: (lo, hi)}, percentile 95% CI of the difference."""
+    Returns {metric: (lo, hi)}, percentile 95% CI of the difference. Undefined (NaN) draws are left
+    out; pass a dict as `defined` to get {metric: number of defined draws}."""
     ns = {len(v) for v in list(mats_a.values()) + list(mats_b.values())}
     assert len(ns) == 1, f"paired bootstrap needs equal cell counts, got {ns}"
     n = ns.pop()
@@ -517,6 +522,8 @@ def paired_bootstrap_diff(mats_a, mats_b, fns, seed=SEED, B=BOOT):
         idx = rng.integers(0, n, size=n)
         for k, (mk, fn) in fns.items():
             acc[k][b] = fn(mats_a[mk][idx].sum(0)) - fn(mats_b[mk][idx].sum(0))
+    if defined is not None:
+        defined.update({k: int(np.isfinite(v).sum()) for k, v in acc.items()})
     return {k: (np.nanpercentile(v, 2.5), np.nanpercentile(v, 97.5)) for k, v in acc.items()}
 
 
@@ -758,6 +765,7 @@ def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
     model differences, and evaluation_summary.txt/.md. Every CI is a cell bootstrap (seed SEED, BOOT
     draws, no FPC). Writes only new files; nothing here changes the census outputs."""
     res, class_rows, bin_rows, diff_rows = {}, [], [], []
+    ci_draws = []   # (file, model, mask, metric, defined draws) for every CI reported
     for m in models:
         for k in masks:
             c4, cb, cbv = (np.array(cms[(m, k)]), np.array(bins[(m, k)]), np.array(bins_bv[(m, k)]))
@@ -769,10 +777,13 @@ def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
                 raise RuntimeError(f"{m} {k}: binary 2x2 differs from the folded 4x4")
             pt4, pb, pbv = (metrics_f1_zero(c4.sum(0)), metrics_f1_zero(cb.sum(0)),
                             metrics_f1_zero(cbv.sum(0)))
-            b4 = bootstrap_cis(c4, n, metrics_fn=metrics_f1_zero)
-            bb = bootstrap_cis(cb, n, metrics_fn=metrics_f1_zero)
-            bbv = bootstrap_cis(cbv, n_bv, metrics_fn=metrics_f1_zero)
+            d4, db, dbv = {}, {}, {}
+            b4 = bootstrap_cis(c4, n, metrics_fn=metrics_f1_zero, defined=d4)
+            bb = bootstrap_cis(cb, n, metrics_fn=metrics_f1_zero, defined=db)
+            bbv = bootstrap_cis(cbv, n_bv, metrics_fn=metrics_f1_zero, defined=dbv)
             res[(m, k)] = dict(c4=c4, cb=cb, n=n, pt4=pt4, b4=b4, pb=pb, bb=bb)
+            ci_draws += [("evaluation_summary (section 1)", m, k, x, d4[x])
+                         for x in ("OA", "kappa", "macro_F1")]
 
             # binary matrix outputs (main result only)
             tag = f"{m}_{_mask_tag(k)}"
@@ -796,14 +807,16 @@ def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
                 row = dict(model=m, mask=k, **{"class": NAMES5[c]})
                 for lab, key in (("UA", "precision"), ("PA", "recall"), ("F1", "F1")):
                     lo, hi = b4[f"{key}[{c}]"]
+                    ci_draws.append(("eval_class_metrics.csv", m, k, f"{lab} {NAMES5[c]}",
+                                     d4[f"{key}[{c}]"]))
                     row.update({lab: _r5(pt4[f"{key}[{c}]"]), f"{lab}_ci_lo": _r5(lo),
                                 f"{lab}_ci_hi": _r5(hi)})
                 row.update(ref_support_px=int(pt4[f"support[{c}]"]), pred_support_px=int(col4[c - 1]),
                            n_cells=n, ci_method=P_BOOT_NOTE, ci_note=P_CI_NOTE)
                 class_rows.append(row)
 
-            for beaver, Bm, pt, bc, nn in (("excluded", B, pb, bb, n),
-                                           ("as_change", cbv.sum(0), pbv, bbv, n_bv)):
+            for beaver, Bm, pt, bc, dd, nn in (("excluded", B, pb, bb, db, n),
+                                               ("as_change", cbv.sum(0), pbv, bbv, dbv, n_bv)):
                 row = dict(model=m, mask=k, beaver=beaver, n_cells=nn, TN=int(Bm[0, 0]),
                            FP=int(Bm[0, 1]), FN=int(Bm[1, 0]), TP=int(Bm[1, 1]), total_px=int(Bm.sum()))
                 for lab, key in (("change_UA", "precision[2]"), ("change_PA", "recall[2]"),
@@ -812,6 +825,8 @@ def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
                                  ("kappa", "kappa"), ("baseline_OA", "baseline_OA")):
                     row.update({lab: _r5(pt[key]), f"{lab}_ci_lo": _r5(bc[key][0]),
                                 f"{lab}_ci_hi": _r5(bc[key][1])})
+                    ci_draws.append(("eval_binary_metrics.csv", m, k, f"{lab} (beaver {beaver})",
+                                     dd[key]))
                 row.update(ci_method=P_BOOT_NOTE, ci_note=P_CI_NOTE)
                 bin_rows.append(row)
 
@@ -828,8 +843,11 @@ def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
                 if cell_ids[(a, k)] != cell_ids[(b, k)]:
                     raise RuntimeError(f"paired bootstrap: cell sets differ for {a} vs {b} [{k}]")
                 ra, rb = res[(a, k)], res[(b, k)]
+                dd = {}
                 ci = paired_bootstrap_diff({"4x4": ra["c4"], "binary": ra["cb"]},
-                                           {"4x4": rb["c4"], "binary": rb["cb"]}, dfns)
+                                           {"4x4": rb["c4"], "binary": rb["cb"]}, dfns, defined=dd)
+                ci_draws += [("eval_model_differences.csv", f"{a} - {b}", k, met, dd[met])
+                             for met in dfns]
                 for met in dfns:
                     ea, eb = ra[dpt[met][0]][dpt[met][1]], rb[dpt[met][0]][dpt[met][1]]
                     lo, hi = ci[met]
@@ -844,14 +862,34 @@ def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
     pd.DataFrame(bin_rows).to_csv(os.path.join(OUT, "eval_binary_metrics.csv"), index=False)
     pd.DataFrame(diff_rows).to_csv(os.path.join(OUT, "eval_model_differences.csv"), index=False)
     for md in (False, True):
-        lines = _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md)
+        lines = _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md, ci_draws)
         with open(os.path.join(OUT, "evaluation_summary." + ("md" if md else "txt")), "w") as fh:
             fh.write("\n".join(lines) + "\n")
 
 
-def _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md):
+# provenance lines for evaluation_summary, by label (the text before the first ": "); the census
+# "CIs" line is left out because this file has its own bootstrap CI text
+EVAL_PROVENANCE = ("reference selection", "cells", "map field", "grid offset", "year rule",
+                   "zero-input mask", "zero input (confirmed)", "classes", "agriculture")
+
+
+def _provenance_lines(provenance, labels):
+    """The provenance lines whose label is in `labels`, in the order of `labels`. Raises if a label
+    is missing or appears twice, so adding or reordering provenance lines cannot silently drop one."""
+    by = {}
+    for l in provenance:
+        if l and not l.startswith(" ") and ": " in l:
+            by.setdefault(l.split(": ", 1)[0], []).append(l)
+    bad = [x for x in labels if len(by.get(x, [])) != 1]
+    if bad:
+        raise RuntimeError(f"provenance labels missing or duplicated: {bad}")
+    return [by[x][0] for x in labels]
+
+
+def _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md, ci_draws):
     """evaluation_summary.txt (md=False) / .md (md=True): confusion matrix, class metrics, binary
-    change and CIs, masked runs as the main table and unmasked alongside."""
+    change and CIs, masked runs as the main table and unmasked alongside. ci_draws: (file, model,
+    mask, metric, defined draws) for every CI reported, for the undefined-draws footnote."""
     h = (lambda t, lvl=2: ["#" * lvl + " " + t, ""]) if md else (lambda t, lvl=2: [t, "-" * len(t)])
     ci = lambda pt, bc, key: fmt_ci(pt[key], *bc[key])
     order = [(k, "main" if i == 0 else "alongside") for i, k in enumerate(masks)]
@@ -863,7 +901,7 @@ def _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md)
           f"CIs: every CI in this file and in the eval_*.csv files is a {P_BOOT_NOTE}. {P_CI_NOTE}. "
           "The census files (summary.txt, metrics_long.csv) give the OA CI by the ratio estimator, "
           "so their OA CIs differ slightly from the bootstrap OA CIs here.", ""]
-    L += [("- " if md else "  ") + l for l in provenance[1:9] if l] + [""]
+    L += [("- " if md else "  ") + l for l in _provenance_lines(provenance, EVAL_PROVENANCE)] + [""]
 
     L += h("1. Confusion Matrix (4x4)")
     L += ["Reference on rows, model on columns: Stable, Harvest, Development, Insect/Disease. Files: "
@@ -929,8 +967,24 @@ def _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md)
         L += [""]
 
     L += h("4. Uncertainty Estimates")
+    short = [r for r in ci_draws if r[4] < BOOT]
     L += [f"All CIs above: {P_BOOT_NOTE}; the cell is the resampling unit. {P_CI_NOTE}.",
           "",
+          "Undefined draws: in a bootstrap draw a metric can be undefined, e.g. the UA of a rare "
+          "class when the resampled cells contain no predictions of it, its PA when they contain no "
+          "reference pixels of it, or kappa when chance agreement is 1. F1 is undefined only when "
+          "the class is absent from both the resampled reference and the predictions; otherwise it "
+          "is set to 0 (section 2). Undefined draws are left out (percentiles of the defined draws "
+          f"only, numpy nanpercentile), so such a CI rests on fewer than {BOOT} draws. In this run "
+          + (f"all {BOOT} draws were defined for every one of the {len(ci_draws)} CIs in this file "
+             "and in the eval_*.csv files." if not short else
+             f"{len(short)} of the {len(ci_draws)} CIs in this file and in the eval_*.csv files used "
+             f"fewer than {BOOT} draws:"),
+          ""]
+    if short:
+        L += _tables(["file", "model", "mask", "metric", "defined draws"],
+                     [list(r) for r in short], md) + [""]
+    L += [
           "Model differences (eval_model_differences.csv): paired cell bootstrap, the same resampled "
           f"cells for both models in every draw ({BOOT} draws, seed {SEED}); difference = model_a - "
           f"model_b with a 95% CI. The {len(diff_rows)} CIs are not adjusted for multiple "
