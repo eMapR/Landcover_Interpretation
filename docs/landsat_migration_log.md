@@ -884,3 +884,102 @@ Run commands (from the repo root):
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_dedup /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_dedup_check.py
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_year_rule2 /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+## 2026-11-06: Prithvi Evaluation Outputs: Confusion Matrix, Class Metrics, Binary Change, Uncertainty
+
+Decision: "Evaluation: Focus on the confusion matrix, class-specific metrics, binary
+change detection, and uncertainty estimates." Implemented in collapsed_5class_confusion.py
+--prithvi as new output files; the existing census outputs are unchanged apart from the frame-size
+wording. The Sentinel-2 path is untouched.
+
+Implementation choices:
+- Binary change vs stable: Change = Harvest + Development + Insect/Disease, for both reference and
+  prediction. Agricultural-change predictions, Unknown/Fire and Beaver reference pixels are
+  excluded, as in the 4x4, so the 2x2 covers exactly the 4x4 pixels. The 2x2 is tallied from the
+  pixels per cell (not folded from the 4x4) and checked against the folded 4x4 in every cell.
+- One sensitivity row per model and mask with Beaver reference pixels counted as reference Change
+  (the Sentinel-2 build_binary_change.py counts Beaver as change). Matrix files and PNGs are made
+  for the main result only.
+- Class metrics: UA, PA and F1 for Stable, Harvest, Development and Insect/Disease; UA = user's
+  accuracy (precision, low UA means commission), PA = producer's accuracy (recall, low PA means
+  omission), as in the Sentinel-2 scripts. Undefined F1 = 0, as before. No separate omission or
+  commission error columns.
+- Uncertainty: every CI in the new files is a cell bootstrap (seed 42, 2000 draws, percentile 95%
+  CI) with no FPC (slightly conservative). The census files keep their ratio-estimator OA CIs, so
+  their OA CIs differ slightly from the bootstrap OA CIs in the new files; each file names its CI
+  method.
+- Model differences: paired cell bootstrap (the same resampled cells for both models in every
+  draw, 2000 draws, seed 42) of model_a - model_b for kappa, macro-F1, Harvest F1 and Change F1,
+  for all 6 model pairs and both masks. Pairing is by cell_id with an assert that the cell sets
+  match. The 48 CIs are not adjusted for multiple comparisons.
+- Masked runs (zero-input mask any_year) are the main tables; unmasked runs are shown alongside.
+
+Settings (module constants in collapsed_5class_confusion.py):
+- LANDSAT_FRAME_N = 21561: the 21,561-cell GEE grid asset
+  projects/ee-burnsmin/assets/grid_112_naip_brackets_5_11_26, counted in GEE by the user; the same
+  grid as the Sentinel-2 N_FRAME. Provisional, pending how cells were drawn per target year.
+- LANDSAT_APPLY_FPC = False: affects only the ratio-estimator CIs (off: N = inf, FPC = 1, so every
+  existing CI is numerically unchanged). The bootstrap CIs never carry an FPC: the frame may turn
+  out to be per target year, so a single-N scaling would not be correct.
+- Wording: "Landsat frame size unknown" is replaced in reference.txt, summary.txt,
+  summary_by_variant.md, the ci_note column of metrics_long.csv, the docstring and the comments
+  by: "Landsat frame N = 21,561 (same grid as Sentinel-2; provisional, pending how cells were drawn
+  per target year); FPC not applied, pending a decision". The new files use the same wording.
+- plot_rownorm() gets an optional title= argument (default = the existing title, so the existing
+  PNGs are unchanged); the binary PNGs use a Title Case first line.
+
+New output files (reports/collapsed_5class_confusion/ under LCI_OUT_DIR):
+- binary_<model>_<masked|unmasked>_counts.csv / _rownorm.csv / .png: binary 2x2 (Stable, Change;
+  reference on rows), 8 of each.
+- eval_class_metrics.csv: model, mask, class, UA, PA, F1 (each with _ci_lo/_ci_hi),
+  ref_support_px, pred_support_px, n_cells, ci_method, ci_note (32 rows).
+- eval_binary_metrics.csv: model, mask, beaver (excluded | as_change), n_cells, TN, FP, FN, TP,
+  total_px, change_UA/PA/F1, stable_UA/PA/F1, OA, kappa, baseline_OA (each with _ci_lo/_ci_hi),
+  ci_method, ci_note (16 rows).
+- eval_model_differences.csv: mask, model_a, model_b, metric, est_a, est_b, diff_a_minus_b,
+  ci_lo, ci_hi, excludes_0, n_cells, draws, seed, ci_method, ci_note (48 rows).
+- evaluation_summary.txt / .md: leads with the four items (confusion matrix, class metrics,
+  binary change, CIs), and states for each model difference whether its CI excludes 0.
+
+Verification (all runs into check_eval/):
+- Baseline: the unchanged script (HEAD d830e13) run into check_eval/baseline_head/ reproduces all
+  32 files in check_year_rule2/ byte-for-byte.
+- After the change (check_eval/eval/): 28 of the 32 existing files are byte-identical (sha256),
+  including every CSV other than metrics_long.csv and every PNG. The 4 that differ:
+  reference.txt and summary.txt (one line each, the frame-size wording), summary_by_variant.md
+  (lines 3 and 5, the same wording), and metrics_long.csv (only the ci_note column; all 12 other
+  columns are identical, checked as raw text and parsed).
+- Totals: for all 8 model/mask runs the 2x2 total equals the 4x4 total (3,470,355 masked,
+  4,036,947 unmasked), and the 2x2 equals the 4x4 folded to Stable/Change in every cell.
+- Cross-checks: the class UA/PA/F1 and their bootstrap CIs in eval_class_metrics.csv equal the
+  precision/recall/F1 and boot_ci_lo/hi in metrics_long.csv exactly (largest difference 0); the
+  binary Stable UA/PA/F1 equal the 4x4 Stable values exactly.
+- Hand spot-check: cell grid 00173, sample 489, target 2016 (unet3d, masked), rebuilt from the
+  raw interpreted codes without the script's collapse functions: [[10732, 162], [141, 63]], equal
+  to the script; one pixel checked by hand (reference code 20, Prithvi code 2: true positive). The
+  same rule summed over all unet3d masked cells equals the saved 2x2. The Beaver row adds 1,239 to
+  FN and 10 to TP, matching side_beaver.csv.
+- FPC switch: a throwaway copy with LANDSAT_APPLY_FPC = True (check_eval/fpc_on/) changes only
+  ratio_se, ratio_ci_lo and ratio_ci_hi in metrics_long.csv (SEs scaled by about 0.993 =
+  sqrt(1 - n/N), within 5-decimal rounding); the bootstrap columns are unchanged and the eval_*.csv
+  files differ only in ci_note.
+- PNG fit check: all 8 binary PNGs measured after drawing: every cell label lies inside its cell
+  and the title sits 32 px above the tick labels; 0 warnings. Two PNGs also inspected visually.
+
+Results (masked, the main run; 312 cells, 3,470,355 px):
+- Change F1: fcn_unfrozen 0.348 (0.275-0.417), unet3d 0.324 (0.247-0.398), fcn_frozen 0.284
+  (0.224-0.341), fcn_random 0.263 (0.201-0.322).
+- fcn_unfrozen and unet3d are not separable: all four difference CIs include 0 (kappa +0.027,
+  -0.001 to +0.057; macro-F1 +0.009; Harvest F1 +0.030; Change F1 +0.024). In the unmasked run the
+  kappa and Harvest F1 differences between them exclude 0, so this pair's ordering depends on the
+  mask.
+- fcn_random is worst: it is lower than each of the other three models on all four metrics, and
+  all 12 of its difference CIs exclude 0.
+- Most error is change called Stable: 72-77% of reference change pixels are predicted Stable
+  (Change PA 0.24-0.28). Missed change (FN) outnumbers false change (FP) for every model, by about
+  3:1 for fcn_unfrozen and unet3d, but for fcn_frozen the two are nearly equal (35,693 vs 35,604).
+- Beaver-as-change sensitivity changes Change F1 by at most 0.0055 (masked).
+
+Run command (from the repo root):
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_eval/eval /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi

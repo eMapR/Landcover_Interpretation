@@ -43,9 +43,24 @@ selection: reproducible seeded selection (seed 42) of one interpretation per dou
 location, kept per decision; sensitivity analysis in scripts/prithvi_dedup_check.py: using the other
 reviewer's map for all double-interpreted cells changes the results by at most 0.006. The best model
 stays the same on every metric except Development F1, where fcn_unfrozen and unet3d are nearly tied
-(0.0006 apart) and swap places. Which years the zero-input mask covers is provisional and the CIs
-carry no FPC (Landsat frame size unknown); see reference.txt. --truth is refused for any
+(0.0006 apart) and swap places. Which years the zero-input mask covers is provisional; CIs: Landsat
+frame N = 21,561 (same grid as Sentinel-2; provisional, pending how cells were drawn per target
+year); FPC not applied, pending a decision (settings LANDSAT_FRAME_N and LANDSAT_APPLY_FPC, the
+latter affecting only the ratio-estimator CIs); see reference.txt. --truth is refused for any
 non-Sentinel-2 run.
+
+--prithvi evaluation outputs (in addition to the census outputs above), masked and unmasked; every
+CI in them is a cell bootstrap (seed 42, 2000 draws, no FPC, so slightly conservative):
+  - binary_<model>_<masked|unmasked>_counts.csv / _rownorm.csv / .png
+                                    binary change vs stable 2x2 (Change = Harvest + Development +
+                                    Insect/Disease; agricultural-change predictions, Unknown/Fire and
+                                    Beaver reference pixels excluded)
+  - eval_class_metrics.csv          UA (precision), PA (recall), F1 per class of the 4x4
+  - eval_binary_metrics.csv         binary change metrics; one extra row per model and mask with
+                                    Beaver reference pixels counted as Change (sensitivity)
+  - eval_model_differences.csv      paired cell-bootstrap differences between each pair of models
+                                    (kappa, macro-F1, Harvest F1, Change F1)
+  - evaluation_summary.txt / .md    confusion matrix, class metrics, binary change, CIs
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat \
         python scripts/collapsed_5class_confusion.py --prithvi
@@ -260,11 +275,12 @@ def bootstrap_cis(cms, n, seed=SEED, B=BOOT, metrics_fn=metrics):
 
 
 # ----------------------------------------------------------------------------- figure
-def plot_rownorm(M, version, mt, path, labels=None, scheme="collapsed 5-class"):
+def plot_rownorm(M, version, mt, path, labels=None, scheme="collapsed 5-class", title=None):
     """5x5 (or len(labels) square) confusion in the transfer_confusion style: cells are raw counts, color is the row
     proportion (so the diagonal shade is producer's accuracy), with a PA column (producer's /
     recall) and support on the right, a UA row (user's / precision) on the bottom, and OA and
-    kappa in the corner.
+    kappa in the corner. `title` replaces the two-line default title when given (None = default,
+    so existing figures are unchanged).
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -330,11 +346,12 @@ def plot_rownorm(M, version, mt, path, labels=None, scheme="collapsed 5-class"):
     ax.set_yticks(np.arange(-0.5, nc + 1, 1), minor=True)
     ax.grid(which="minor", color="white", lw=0.6); ax.tick_params(which="minor", length=0)
 
-    ax.set_title(f"{version}  ·  {scheme}\n"
+    if title is None:
+        title = (f"{version}  ·  {scheme}\n"
                  f"cells = raw counts; color = row proportion (producer's). "
                  f"PA = producer's accuracy (recall), UA = user's accuracy (precision); "
-                 f"n = reference support on PA (row totals), predicted support on UA (column totals)",
-                 fontsize=8, pad=26)
+                 f"n = reference support on PA (row totals), predicted support on UA (column totals)")
+    ax.set_title(title, fontsize=8, pad=26)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -400,14 +417,26 @@ def _texci(s):
 # CONFIRMED (2026-11-05): year rule target_minus_1; missing input was 0 and the models saw 0.
 # KEPT per decision (2026-11-05): reproducible seeded selection (seed 42) of one interpretation per
 # double-interpreted location (no Landsat truth set); sensitivity analysis: scripts/prithvi_dedup_check.py.
-# PROVISIONAL choices, written into reference.txt: which years the zero-input mask covers, and no FPC
-# (Landsat frame size unknown).
+# PROVISIONAL choices, written into reference.txt: which years the zero-input mask covers, and the
+# frame: Landsat frame N = 21,561 (same grid as Sentinel-2; provisional, pending how cells were drawn
+# per target year); FPC not applied, pending a decision.
 P_CLASSES = [1, 2, 3, 4]
 P_LABELS = [NAMES5[c] for c in P_CLASSES]
 P_PRED_NAMES = {1: "Stable", 2: "Harvest", 3: "Development", 4: "Insect/Disease",
                 6: "Agricultural change"}
 P_REF_NAMES = {0: "Unknown/Fire (excluded)", **NAMES5}
-P_CI_NOTE = "no FPC, Landsat frame size unknown"
+# Landsat sampling frame: the 21,561-cell GEE grid asset projects/ee-burnsmin/assets/
+# grid_112_naip_brackets_5_11_26 (same grid as the Sentinel-2 N_FRAME), counted in GEE. Provisional,
+# pending how cells were drawn per target year. LANDSAT_APPLY_FPC affects ONLY the ratio-estimator
+# CIs (off: N = inf, FPC = 1, numerically identical to before); the bootstrap CIs never carry an FPC.
+LANDSAT_FRAME_N = 21561
+LANDSAT_APPLY_FPC = False
+P_CI_NOTE = (f"Landsat frame N = {LANDSAT_FRAME_N:,} (same grid as Sentinel-2; provisional, pending "
+             f"how cells were drawn per target year); "
+             + ("FPC applied to the ratio-estimator CIs" if LANDSAT_APPLY_FPC
+                else "FPC not applied, pending a decision"))
+P_BOOT_NOTE = (f"cell bootstrap (seed {SEED}, {BOOT} draws), percentile 95% CI; bootstrap CIs carry "
+               f"no FPC (slightly conservative)")
 ZERO_INPUT_NOTE = ("missing input was set to 0 in all bands and 0 was used as missing, so the "
                    "models saw 0 (the README's NaN -> -1 step did not apply)")
 SELECTION_NOTE = ("reproducible seeded selection (seed {SEED}) of one interpretation per "
@@ -450,6 +479,47 @@ def prithvi_cell_tallies(rf, codes, keep):
     return cm, agri, beaver
 
 
+B_LABELS = ["Stable", "Change"]                # binary classes: 1 = Stable, 2 = Change
+B_NAMES = {1: "Stable", 2: "Change"}
+
+
+def prithvi_binary_tallies(rf, codes, keep):
+    """Binary change vs stable 2x2 tallies (rows = reference, Stable then Change), computed from
+    the pixels (not by folding the 4x4), over the pixels in `keep`. Change = Harvest + Development +
+    Insect/Disease on both sides. Agricultural-change predictions and Unknown/Fire reference pixels
+    are excluded in both. main: Beaver reference pixels excluded (same pixels as the 4x4).
+    beaver_as_change: sensitivity, Beaver reference pixels counted as reference Change."""
+    ref = collapse_reference(rf)
+    pred_ok = (codes >= 1) & (codes <= 4)
+    pred_b = np.where(codes == 1, 0, 1)
+    out = []
+    for ref_max in (4, 5):                     # 4: Beaver excluded; 5: Beaver -> Change
+        valid = keep & pred_ok & (ref >= 1) & (ref <= ref_max)
+        ref_b = np.where(ref == 1, 0, 1)
+        b = np.zeros((2, 2), dtype=np.int64)
+        np.add.at(b, (ref_b[valid], pred_b[valid]), 1)
+        out.append(b)
+    return out[0], out[1]
+
+
+def paired_bootstrap_diff(mats_a, mats_b, fns, seed=SEED, B=BOOT):
+    """Paired cell bootstrap of fn(model a) - fn(model b): in each draw the SAME resampled cells
+    (rows of per-cell arrays aligned by cell_id) are pooled for both models.
+    mats_a / mats_b: {matrix_key: (n, k, k) per-cell array}, same n and cell order for both.
+    fns: {metric: (matrix_key, fn)}, fn maps a pooled matrix to a scalar.
+    Returns {metric: (lo, hi)}, percentile 95% CI of the difference."""
+    ns = {len(v) for v in list(mats_a.values()) + list(mats_b.values())}
+    assert len(ns) == 1, f"paired bootstrap needs equal cell counts, got {ns}"
+    n = ns.pop()
+    rng = np.random.default_rng(seed)
+    acc = {k: np.empty(B) for k in fns}
+    for b in range(B):
+        idx = rng.integers(0, n, size=n)
+        for k, (mk, fn) in fns.items():
+            acc[k][b] = fn(mats_a[mk][idx].sum(0)) - fn(mats_b[mk][idx].sum(0))
+    return {k: (np.nanpercentile(v, 2.5), np.nanpercentile(v, 97.5)) for k, v in acc.items()}
+
+
 def _metric_rows(v, mask, census, pt, rci, bci, classes):
     rows = []
     for mk in ["OA", "kappa", "macro_F1", "mean_IoU", "baseline_OA"]:
@@ -489,6 +559,11 @@ def main_prithvi():
     cms = {(m, k): [] for m in PL.PRITHVI_MODELS for k in masks}
     agri = {(m, k): np.zeros(6, np.int64) for m in PL.PRITHVI_MODELS for k in masks}
     beaver = {(m, k): np.zeros(PL.AGRICULTURE + 1, np.int64) for m in PL.PRITHVI_MODELS for k in masks}
+    # evaluation: per-cell binary 2x2 (same cells as cms) with cell_ids, and the Beaver-as-change
+    # sensitivity 2x2 (its own cells: those with any pixel in it)
+    bins = {(m, k): [] for m in PL.PRITHVI_MODELS for k in masks}
+    cell_ids = {(m, k): [] for m in PL.PRITHVI_MODELS for k in masks}
+    bins_bv = {(m, k): [] for m in PL.PRITHVI_MODELS for k in masks}
     px = defaultdict(int)          # pixel accounting, identical across models
     missing, scored = [], []
     avail_years = PL.available_label_years()
@@ -531,6 +606,14 @@ def main_prithvi():
                 beaver[(m, k)] += b
                 if cm.sum() > 0:
                     cms[(m, k)].append(cm)
+                bn, bv = prithvi_binary_tallies(rf, codes, keep)
+                if bn.sum() != cm.sum():
+                    raise RuntimeError(f"{cell} {m} {k}: binary total {bn.sum()} != 4x4 total {cm.sum()}")
+                if cm.sum() > 0:
+                    bins[(m, k)].append(bn)
+                    cell_ids[(m, k)].append(cell_id)
+                if bv.sum() > 0:
+                    bins_bv[(m, k)].append(bv)
 
     pd.DataFrame(missing).to_csv(os.path.join(OUT, "no_prithvi_match.csv"), index=False)
     pd.DataFrame(scored).to_csv(os.path.join(OUT, "scored_cells.csv"), index=False)
@@ -544,7 +627,9 @@ def main_prithvi():
             n = len(mcms)
             census = mcms.sum(0)
             pt = metrics_f1_zero(census)
-            rci = ratio_cis(mcms, n, np.inf)            # N = inf: FPC = 1, frame size unknown
+            # LANDSAT_APPLY_FPC off: N = inf, FPC = 1 (Landsat frame N = 21,561, same grid as
+            # Sentinel-2, provisional; FPC not applied, pending a decision)
+            rci = ratio_cis(mcms, n, LANDSAT_FRAME_N if LANDSAT_APPLY_FPC else np.inf)
             bci = bootstrap_cis(mcms, n, metrics_fn=metrics_f1_zero)
             tag = f"{m}_{'masked' if k != 'none' else 'unmasked'}"
             pd.DataFrame(census, index=P_LABELS, columns=P_LABELS).to_csv(
@@ -594,7 +679,9 @@ def main_prithvi():
         "reference pixels excluded; Beaver reference pixels reported in side_beaver.csv",
         f"agriculture: Prithvi agriculture is {AGRI_NOTE}; its predictions are reported in "
         "side_agricultural_change.csv",
-        f"CIs: {P_CI_NOTE} (ratio estimator with FPC = 1; cell bootstrap seed {SEED}, {BOOT} draws)",
+        f"CIs: {P_CI_NOTE} (ratio estimator with "
+        + (f"FPC sqrt(1 - n/{LANDSAT_FRAME_N:,})" if LANDSAT_APPLY_FPC else "FPC = 1")
+        + f"; cell bootstrap seed {SEED}, {BOOT} draws)",
         "grid offset: the Prithvi grid is offset 9.10 m east and 0.07 m north of the reference "
         "grid, identically on every tile (measured on all 28,224 outputs); each reference pixel "
         "takes the Prithvi pixel under its centre, which overlaps it by about 70% of its area, so "
@@ -640,7 +727,223 @@ def main_prithvi():
     with open(os.path.join(OUT, "summary.txt"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
     print("\n" + "\n".join(lines))
+
+    write_evaluation(PL.PRITHVI_MODELS, masks, cms, bins, bins_bv, cell_ids, provenance)
     print(f"\nwrote {OUT}/")
+
+
+# ----------------------------------------------------------------------------- --prithvi evaluation
+def _r5(x):
+    return round(float(x), 5) if np.isfinite(x) else ""
+
+
+def _mask_tag(k):
+    return "masked" if k != "none" else "unmasked"
+
+
+def _tables(header, rows, md):
+    """A table as markdown lines (md=True) or fixed-width text lines."""
+    if md:
+        return (["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+                + ["| " + " | ".join(str(c) for c in r) + " |" for r in rows])
+    w = [max(len(str(x)) for x in col) for col in zip(header, *rows)]
+    fmt = lambda r: "  ".join(str(c).ljust(w[0]) if i == 0 else str(c).rjust(w[i])
+                              for i, c in enumerate(r)).rstrip()
+    return [fmt(header)] + [fmt(r) for r in rows]
+
+
+def write_evaluation(models, masks, cms, bins, bins_bv, cell_ids, provenance):
+    """Evaluation outputs for --prithvi: binary change vs stable 2x2 matrices (counts, row-normalized,
+    PNG), class-specific UA/PA/F1, binary change metrics (+ Beaver-as-change sensitivity), paired
+    model differences, and evaluation_summary.txt/.md. Every CI is a cell bootstrap (seed SEED, BOOT
+    draws, no FPC). Writes only new files; nothing here changes the census outputs."""
+    res, class_rows, bin_rows, diff_rows = {}, [], [], []
+    for m in models:
+        for k in masks:
+            c4, cb, cbv = (np.array(cms[(m, k)]), np.array(bins[(m, k)]), np.array(bins_bv[(m, k)]))
+            n, n_bv = len(c4), len(cbv)
+            # the pixel-built 2x2 must equal the 4x4 folded to Stable / Change, cell by cell
+            fold = np.stack([np.stack([c4[:, 0, 0], c4[:, 0, 1:].sum(1)], 1),
+                             np.stack([c4[:, 1:, 0].sum(1), c4[:, 1:, 1:].sum((1, 2))], 1)], 1)
+            if len(cb) != n or not np.array_equal(cb, fold):
+                raise RuntimeError(f"{m} {k}: binary 2x2 differs from the folded 4x4")
+            pt4, pb, pbv = (metrics_f1_zero(c4.sum(0)), metrics_f1_zero(cb.sum(0)),
+                            metrics_f1_zero(cbv.sum(0)))
+            b4 = bootstrap_cis(c4, n, metrics_fn=metrics_f1_zero)
+            bb = bootstrap_cis(cb, n, metrics_fn=metrics_f1_zero)
+            bbv = bootstrap_cis(cbv, n_bv, metrics_fn=metrics_f1_zero)
+            res[(m, k)] = dict(c4=c4, cb=cb, n=n, pt4=pt4, b4=b4, pb=pb, bb=bb)
+
+            # binary matrix outputs (main result only)
+            tag = f"{m}_{_mask_tag(k)}"
+            B = cb.sum(0)
+            pd.DataFrame(B, index=B_LABELS, columns=B_LABELS).to_csv(
+                os.path.join(OUT, f"binary_{tag}_counts.csv"))
+            with np.errstate(invalid="ignore"):
+                rn = B / B.sum(1, keepdims=True)
+            pd.DataFrame(np.round(rn, 4), index=B_LABELS, columns=B_LABELS).to_csv(
+                os.path.join(OUT, f"binary_{tag}_rownorm.csv"))
+            plot_rownorm(B, m, pb, os.path.join(OUT, f"binary_{tag}.png"), labels=B_LABELS,
+                         title=f"{m}  ·  Binary Change vs Stable, Zero-Input Mask: {k}\n"
+                               f"Change = Harvest + Development + Insect/Disease; agricultural-change "
+                               f"predictions, Unknown/Fire and Beaver reference pixels excluded\n"
+                               f"cells = raw counts; color = row proportion (producer's). "
+                               f"PA = producer's accuracy (recall), UA = user's accuracy (precision); "
+                               f"n = reference support on PA, predicted support on UA")
+
+            col4 = c4.sum((0, 1))
+            for c in P_CLASSES:
+                row = dict(model=m, mask=k, **{"class": NAMES5[c]})
+                for lab, key in (("UA", "precision"), ("PA", "recall"), ("F1", "F1")):
+                    lo, hi = b4[f"{key}[{c}]"]
+                    row.update({lab: _r5(pt4[f"{key}[{c}]"]), f"{lab}_ci_lo": _r5(lo),
+                                f"{lab}_ci_hi": _r5(hi)})
+                row.update(ref_support_px=int(pt4[f"support[{c}]"]), pred_support_px=int(col4[c - 1]),
+                           n_cells=n, ci_method=P_BOOT_NOTE, ci_note=P_CI_NOTE)
+                class_rows.append(row)
+
+            for beaver, Bm, pt, bc, nn in (("excluded", B, pb, bb, n),
+                                           ("as_change", cbv.sum(0), pbv, bbv, n_bv)):
+                row = dict(model=m, mask=k, beaver=beaver, n_cells=nn, TN=int(Bm[0, 0]),
+                           FP=int(Bm[0, 1]), FN=int(Bm[1, 0]), TP=int(Bm[1, 1]), total_px=int(Bm.sum()))
+                for lab, key in (("change_UA", "precision[2]"), ("change_PA", "recall[2]"),
+                                 ("change_F1", "F1[2]"), ("stable_UA", "precision[1]"),
+                                 ("stable_PA", "recall[1]"), ("stable_F1", "F1[1]"), ("OA", "OA"),
+                                 ("kappa", "kappa"), ("baseline_OA", "baseline_OA")):
+                    row.update({lab: _r5(pt[key]), f"{lab}_ci_lo": _r5(bc[key][0]),
+                                f"{lab}_ci_hi": _r5(bc[key][1])})
+                row.update(ci_method=P_BOOT_NOTE, ci_note=P_CI_NOTE)
+                bin_rows.append(row)
+
+    # paired model differences: same resampled cells for both models in every draw
+    dfns = {"kappa": ("4x4", lambda M: metrics_f1_zero(M)["kappa"]),
+            "macro_F1": ("4x4", lambda M: metrics_f1_zero(M)["macro_F1"]),
+            "F1_Harvest": ("4x4", lambda M: metrics_f1_zero(M)["F1[2]"]),
+            "F1_Change": ("binary", lambda M: metrics_f1_zero(M)["F1[2]"])}
+    dpt = {"kappa": ("pt4", "kappa"), "macro_F1": ("pt4", "macro_F1"),
+           "F1_Harvest": ("pt4", "F1[2]"), "F1_Change": ("pb", "F1[2]")}
+    for k in masks:
+        for i, a in enumerate(models):
+            for b in models[i + 1:]:
+                if cell_ids[(a, k)] != cell_ids[(b, k)]:
+                    raise RuntimeError(f"paired bootstrap: cell sets differ for {a} vs {b} [{k}]")
+                ra, rb = res[(a, k)], res[(b, k)]
+                ci = paired_bootstrap_diff({"4x4": ra["c4"], "binary": ra["cb"]},
+                                           {"4x4": rb["c4"], "binary": rb["cb"]}, dfns)
+                for met in dfns:
+                    ea, eb = ra[dpt[met][0]][dpt[met][1]], rb[dpt[met][0]][dpt[met][1]]
+                    lo, hi = ci[met]
+                    diff_rows.append(dict(mask=k, model_a=a, model_b=b, metric=met, est_a=_r5(ea),
+                                          est_b=_r5(eb), diff_a_minus_b=_r5(ea - eb),
+                                          ci_lo=_r5(lo), ci_hi=_r5(hi),
+                                          excludes_0=bool(lo > 0 or hi < 0), n_cells=ra["n"],
+                                          draws=BOOT, seed=SEED,
+                                          ci_method="paired " + P_BOOT_NOTE, ci_note=P_CI_NOTE))
+
+    pd.DataFrame(class_rows).to_csv(os.path.join(OUT, "eval_class_metrics.csv"), index=False)
+    pd.DataFrame(bin_rows).to_csv(os.path.join(OUT, "eval_binary_metrics.csv"), index=False)
+    pd.DataFrame(diff_rows).to_csv(os.path.join(OUT, "eval_model_differences.csv"), index=False)
+    for md in (False, True):
+        lines = _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md)
+        with open(os.path.join(OUT, "evaluation_summary." + ("md" if md else "txt")), "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+
+
+def _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md):
+    """evaluation_summary.txt (md=False) / .md (md=True): confusion matrix, class metrics, binary
+    change and CIs, masked runs as the main table and unmasked alongside."""
+    h = (lambda t, lvl=2: ["#" * lvl + " " + t, ""]) if md else (lambda t, lvl=2: [t, "-" * len(t)])
+    ci = lambda pt, bc, key: fmt_ci(pt[key], *bc[key])
+    order = [(k, "main" if i == 0 else "alongside") for i, k in enumerate(masks)]
+    L = (["# Prithvi Evaluation Summary (Landsat)", ""] if md else
+         ["Prithvi Evaluation Summary (model vs Landsat interpreted reference)", "=" * 66])
+    L += ["Four Prithvi models scored against the Landsat interpreted references. PROVISIONAL "
+          "(zero-input mask years). Main tables: masked runs (zero-input mask: "
+          f"{masks[0]}); unmasked runs alongside.",
+          f"CIs: every CI in this file and in the eval_*.csv files is a {P_BOOT_NOTE}. {P_CI_NOTE}. "
+          "The census files (summary.txt, metrics_long.csv) give the OA CI by the ratio estimator, "
+          "so their OA CIs differ slightly from the bootstrap OA CIs here.", ""]
+    L += [("- " if md else "  ") + l for l in provenance[1:9] if l] + [""]
+
+    L += h("1. Confusion Matrix (4x4)")
+    L += ["Reference on rows, model on columns: Stable, Harvest, Development, Insect/Disease. Files: "
+          "confusion_<model>_<masked|unmasked>_counts.csv / _rownorm.csv / .png. OA is dominated "
+          "by the Stable class; read kappa, macro-F1 and the class metrics.", ""]
+    for k, role in order:
+        L += [f"Zero-input mask {k} ({role}):", ""]
+        rows = [[m, res[(m, k)]["n"], f"{int(res[(m, k)]['c4'].sum()):,}",
+                 f"{res[(m, k)]['pt4']['baseline_OA']:.3f}",
+                 *[ci(res[(m, k)]["pt4"], res[(m, k)]["b4"], x) for x in ("OA", "kappa", "macro_F1")]]
+                for m in models]
+        L += _tables(["model", "cells", "valid_px", "all-Stable OA", "OA", "kappa", "macro-F1"], rows, md)
+        L += [""]
+    k0 = masks[0]
+    L += [f"Counts, zero-input mask {k0} (main):", ""]
+    for m in models:
+        c = res[(m, k0)]["c4"].sum(0)
+        L += [f"{m}:", ""]
+        L += _tables(["reference \\ model", *P_LABELS],
+                     [[P_LABELS[i], *[f"{int(v):,}" for v in c[i]]] for i in range(len(P_LABELS))], md)
+        L += [""]
+
+    L += h("2. Class-Specific Metrics")
+    L += ["UA = user's accuracy (precision): low UA means commission. PA = producer's accuracy "
+          "(recall): low PA means omission. Undefined F1 of a class present in the reference = 0. "
+          "File: eval_class_metrics.csv.", ""]
+    for k, role in order:
+        for c in P_CLASSES:
+            L += [f"{NAMES5[c]}, zero-input mask {k} ({role}):", ""]
+            r = [[m, *[ci(res[(m, k)]["pt4"], res[(m, k)]["b4"], f"{x}[{c}]")
+                       for x in ("precision", "recall", "F1")]] for m in models]
+            L += _tables(["model", "UA", "PA", "F1"], r, md) + [""]
+
+    L += h("3. Binary Change Detection")
+    L += ["Change = Harvest + Development + Insect/Disease (reference and prediction); "
+          "agricultural-change predictions, Unknown/Fire and Beaver reference pixels excluded, so "
+          "the 2x2 covers exactly the 4x4 pixels and the Stable UA/PA/F1 equal the 4x4 Stable "
+          "values. Files: binary_<model>_<masked|unmasked>_counts.csv / _rownorm.csv / .png, "
+          "eval_binary_metrics.csv.", ""]
+    br = {(r["model"], r["mask"], r["beaver"]): r for r in bin_rows}
+    f = lambda r, x: (f"{r[x]:.3f} ({r[x + '_ci_lo']:.3f}--{r[x + '_ci_hi']:.3f})"
+                      if r[x] != "" else "n/a")
+    for k, role in order:
+        L += [f"Zero-input mask {k} ({role}):", ""]
+        rr = [br[(m, k, "excluded")] for m in models]
+        L += _tables(["model", "TN", "FP", "FN", "TP", "all-Stable OA", "OA", "kappa"],
+                     [[r["model"], f"{r['TN']:,}", f"{r['FP']:,}", f"{r['FN']:,}", f"{r['TP']:,}",
+                       f"{r['baseline_OA']:.3f}", f(r, "OA"), f(r, "kappa")] for r in rr], md) + [""]
+        L += _tables(["model", "Change UA", "Change PA", "Change F1", "Stable UA", "Stable PA",
+                      "Stable F1"],
+                     [[r["model"], *[f(r, x) for x in ("change_UA", "change_PA", "change_F1",
+                                                       "stable_UA", "stable_PA", "stable_F1")]]
+                      for r in rr], md) + [""]
+    L += ["Sensitivity: Beaver reference pixels counted as reference Change (as the Sentinel-2 "
+          "build_binary_change.py does; that script uses ratio-estimator CIs with FPC for the "
+          "ratio-form metrics, so only the class definition is comparable):", ""]
+    for k, role in order:
+        L += [f"Zero-input mask {k} ({role}):", ""]
+        rr = [br[(m, k, "as_change")] for m in models]
+        L += _tables(["model", "cells", "FN", "TP", "kappa", "Change UA", "Change PA", "Change F1"],
+                     [[r["model"], r["n_cells"], f"{r['FN']:,}", f"{r['TP']:,}", f(r, "kappa"),
+                       f(r, "change_UA"), f(r, "change_PA"), f(r, "change_F1")] for r in rr], md)
+        L += [""]
+
+    L += h("4. Uncertainty Estimates")
+    L += [f"All CIs above: {P_BOOT_NOTE}; the cell is the resampling unit. {P_CI_NOTE}.",
+          "",
+          "Model differences (eval_model_differences.csv): paired cell bootstrap, the same resampled "
+          f"cells for both models in every draw ({BOOT} draws, seed {SEED}); difference = model_a - "
+          f"model_b with a 95% CI. The {len(diff_rows)} CIs are not adjusted for multiple "
+          "comparisons.", ""]
+    g = lambda x: f"{x:+.3f}"
+    for k, role in order:
+        L += [f"Zero-input mask {k} ({role}):", ""]
+        rr = [r for r in diff_rows if r["mask"] == k]
+        L += _tables(["model_a", "model_b", "metric", "a - b", "95% CI", "CI excludes 0"],
+                     [[r["model_a"], r["model_b"], r["metric"], g(r["diff_a_minus_b"]),
+                       f"{g(r['ci_lo'])} to {g(r['ci_hi'])}", "yes" if r["excludes_0"] else "no"]
+                      for r in rr], md) + [""]
+    return L
 
 
 # ----------------------------------------------------------------------------- driver
