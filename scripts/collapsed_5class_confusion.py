@@ -972,9 +972,10 @@ def _evaluation_summary(models, masks, res, bin_rows, diff_rows, provenance, md,
           "",
           "Undefined draws: in a bootstrap draw a metric can be undefined, e.g. the UA of a rare "
           "class when the resampled cells contain no predictions of it, its PA when they contain no "
-          "reference pixels of it, or kappa when chance agreement is 1. F1 is undefined only when "
-          "the class is absent from both the resampled reference and the predictions; otherwise it "
-          "is set to 0 (section 2). Undefined draws are left out (percentiles of the defined draws "
+          "reference pixels of it, or kappa when chance agreement is 1. F1 is undefined whenever "
+          "the class is absent from the resampled reference, whether or not the model predicts it; "
+          "when the class is present in the resampled reference, an undefined F1 is set to 0 "
+          "(section 2). Undefined draws are left out (percentiles of the defined draws "
           f"only, numpy nanpercentile), so such a CI rests on fewer than {BOOT} draws. In this run "
           + (f"all {BOOT} draws were defined for every one of the {len(ci_draws)} CIs in this file "
              "and in the eval_*.csv files." if not short else

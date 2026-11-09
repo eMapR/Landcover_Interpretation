@@ -1028,3 +1028,18 @@ The change affects only the --prithvi (Landsat) evaluation outputs; the Sentinel
 Run command (from the repo root):
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_eval2/eval /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+## 2026-11-09: Evaluation Summary Footnote Wording Corrected
+
+The footnote in evaluation_summary.txt/.md said F1 is undefined in a bootstrap draw only when the
+class is absent from both the resampled reference and the predictions. The code actually makes F1
+undefined whenever the class is absent from the resampled reference, whether or not the model
+predicts it; when the class is present in the reference, an undefined F1 is set to 0. The sentence
+now says this.
+
+Text change only in scripts/collapsed_5class_confusion.py; no calculation or numbers changed.
+
+Check: a run into check_footnote/ was compared with check_confirm/. Every CSV and PNG is
+byte-identical, and evaluation_summary.txt and .md differ only in this sentence.
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_footnote /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
