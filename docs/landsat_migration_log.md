@@ -1043,3 +1043,30 @@ Check: a run into check_footnote/ was compared with check_confirm/. Every CSV an
 byte-identical, and evaluation_summary.txt and .md differ only in this sentence.
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_footnote /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+
+## 2026-11-10: New Script: Prithvi Disagreement Panels
+
+New Landsat-only script scripts/prithvi_disagreement_panels.py. For selected cells it draws the
+interpreted reference next to the four Prithvi model maps (fcn_unfrozen, unet3d, fcn_frozen,
+fcn_random) and an agree/disagree map for fcn_unfrozen, in the same four classes as the evaluation.
+It uses the same cells, de-duplication, loader, class collapse and zero-input mask as
+collapsed_5class_confusion.py --prithvi.
+
+Cell selection: top 10 cells by fcn_unfrozen disagreement, top 10 by interpreted change (Harvest +
+Development + Insect/Disease), or a given list (--cells). Output: one PNG per cell and a summary CSV
+per mode.
+
+Masked input: the chips set water, cloud and shadow to 0. A check over the 322 cells found that
+about 53% of zero-input pixels are reference Water. Pixels that are zero in all 4 years are almost
+all water; pixels that are zero in only some years are mostly cloud or shadow over land. The legend
+therefore says "Masked Input (Water, Cloud or Shadow)". Some reference "Urban" (code 0) pixels in
+cells 37611, 37060, 45732 and 51391 are masked in every year and are likely water; this belongs to
+the open code-0 question.
+
+Checks: agree and valid pixel totals match the masked evaluation confusion matrices exactly for all
+four models; an independent read of the raw outputs for cells 43520 and 45592 matched with 0
+differing pixels; map orientation, options, refusals and reproducibility were checked; no text
+overlaps. The script refuses to run without LCI_OUT_DIR, on a sensor other than Landsat, or with an
+output path inside reports/ or the Prithvi data folders.
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_disagreement_panels.py --mode both
