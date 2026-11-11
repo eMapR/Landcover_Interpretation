@@ -19,8 +19,8 @@ Landsat run command:
     LCI_OUT_DIR=reports_landsat python scripts/interpreter_change_stable_conflicts.py
 
 Open items:
-- Landsat results are provisional (not committed) pending two questions to the data
-  provider: whether all-zero edge rows/columns (code 0) are padding, and whether the
+- Landsat results are provisional (not committed) pending two open questions about the Landsat
+  reference data: whether all-zero edge rows/columns (code 0) are padding, and whether the
   June batch used an older label set.
 - Some scripts (e.g. spatial_structure, sampling_experiment_ABCD, window_sampling_approach*,
   build_spectral_confusion, model_class_ci_5class) follow LCI_RF_DIR but not LCI_OUT_DIR.
@@ -31,8 +31,8 @@ Open items:
 ## 2026-10-21: beaver_example_figure.py Scale Bar, Zoom, and Overlap Fix
 
 Change: the scale bar (length, height, position), patch-box padding, and zoom margin are now set
-in metres and converted with each raster's resolution, instead of fixed pixel counts that assumed
-10 m. At 30 m the old bar was 100 px (3 km) but labelled "1 km", and the zoom margin (45 px)
+in meters and converted with each raster's resolution, instead of fixed pixel counts that assumed
+10 m. At 30 m the old bar was 100 px (3 km) but labeled "1 km", and the zoom margin (45 px)
 covered nearly the whole 113-px cell. The 1 km scale bar now moves to the bottom-right when its
 bar or label would overlap the padded patch box (prints a WARN if both corners collide).
 
@@ -100,7 +100,7 @@ is wider than the figure.
 Change: the same 10 m assumptions that beaver_example_figure.py had (fixed 2026-10-21) are now
 gone from change_class_examples.py. The 1 km scale bar was a fixed 100 px, which is right at 10 m
 but almost the whole 113-px cell at 30 m. The bar length, bar height and offset, the patch-box
-padding (6 px = 60 m) and the zoom margin (45 px = 450 m) are now set in metres and converted with
+padding (6 px = 60 m) and the zoom margin (45 px = 450 m) are now set in meters and converted with
 the raster's pixel size (`abs(transform.a)`). The script reuses `_overlaps` from
 beaver_example_figure.py. If the bar or its label would overlap the padded patch box, the bar
 moves to the bottom-right corner, as in the beaver script. If that corner is also blocked, it
@@ -183,7 +183,7 @@ Changes:
   figures inspected: no overlapping text. Development->Urban has only 1 patch, so its curve is
   not drawn (curves need >= 3 patches) and that panel shows only Urban->Development (n=11).
 
-Open items (thresholds for advisor; not changed):
+Open items (open for decision; not changed):
 - AREA_THRESH_HA = 0.1 ha (frac_area_under/over_0p1ha, console "<0.1ha"): 10 px at 10 m, about
   1.1 px at 30 m. The smallest Landsat patch is 0.09 ha, so "< 0.1 ha" now means exactly the
   single-pixel patches.
@@ -230,8 +230,8 @@ Open items (not changed):
    classes shown in the maps (yellow and others) are missing from it.
 2. gs_wetland_top10.png: the last word of the bottom caption ("patch.") overlaps the top
    border of the legend box, on both sensors.
-3. For advisor: THRESH_HA = 0.1 ha (the lt_0.1ha / ge_0.1ha bins) is 10 px at 10 m but about
-   1.1 px at 30 m. On Landsat, lt_0.1ha holds only the single-pixel patches (0.09 ha) and
+3. Open for decision: THRESH_HA = 0.1 ha (the lt_0.1ha / ge_0.1ha bins) is 10 px at 10 m but
+   about 1.1 px at 30 m. On Landsat, lt_0.1ha holds only the single-pixel patches (0.09 ha) and
    ge_0.1ha everything 2 px (0.18 ha) or larger.
 
 ## 2026-10-26: reviewer_directional_asymmetry.py
@@ -258,7 +258,7 @@ Changes:
   Insect/Disease (+5.81) and myscon Unknown (+4.17), both on about 5 ha.
 - git status after each run: nothing under reports/, outputs/ or exports/ modified.
 
-Hard-coded values (for advisor; not changed):
+Hard-coded values (open for decision; not changed):
 
 | Value | Where | 10 m | 30 m |
 |---|---|---|---|
@@ -293,7 +293,7 @@ Open items (not changed):
 ## 2026-10-26: spatial_tolerance.py
 
 This script was not part of the earlier sensor-agnostic edits. It already found its rasters
-through CI.find_pairs (LCI_SENSOR, LCI_RF_DIR) and uses no pixel area or metre text.
+through CI.find_pairs (LCI_SENSOR, LCI_RF_DIR) and uses no pixel area or meter text.
 
 Changes:
 - Added `import sensor_config as SC`.
@@ -320,7 +320,7 @@ Changes:
   Agriculture, Forest), the rest removed by MIN_DENOM_PX.
 - git status after each run: nothing under reports/, outputs/ or exports/ modified.
 
-Hard-coded values (for advisor; not changed):
+Hard-coded values (open for decision; not changed):
 
 | Value | Meaning | 10 m | 30 m |
 |---|---|---|---|
@@ -345,16 +345,16 @@ Open items (not changed):
 2. Landsat results look different: delta_net_5 is negative for every class and delta_net_3 is
    ~0 or below (only Urban A->B slightly positive, +0.010, CI spans 0). Sentinel-2 had
    Development (+0.082) and Urban (+0.044) recovering above null. The fixed pixel windows and
-   null shifts are 3x larger in metres on Landsat, which likely contributes; needs a decision on
+   null shifts are 3x larger in meters on Landsat, which likely contributes; needs a decision on
    how to interpret or whether to scale the windows/shifts.
 3. Docstring still says "For each of the 69 pairs"; Sentinel-2 finds 72 and Landsat 29.
 4. annotate_figures.py's caption for spatial_tolerance_delta.png contains a Sentinel-2-specific
    interpretation ("only Urban/Development recover above null ... no >1-pixel
    misregistration"); it does not hold for the Landsat figure and should not be reused for it.
 
-## 2026-10-28: Small/Large Patch Threshold Per Sensor (Advisor Decision)
+## 2026-10-28: Small/Large Patch Threshold Per Sensor (Decision)
 
-Decision (advisor): the small/large disagreement-patch split is 5 pixels on Landsat (30 m,
+Decision: the small/large disagreement-patch split is 5 pixels on Landsat (30 m,
 0.45 ha) instead of 0.1 ha. Sentinel-2 keeps 0.1 ha and must stay byte-identical. "Small" is
 still strictly below the threshold. This closes the open items on AREA_THRESH_HA
 (disagreement_geometry.py, 2026-10-26) and THRESH_HA (disagreement_geometry_bysize.py, item 3).
@@ -412,9 +412,9 @@ Open items (not changed):
 2. Column and bin names now differ by sensor (*_0p1ha vs *_5px), so anything that joins the
    two sensors' summaries must map them.
 
-## 2026-10-28: reviewer_directional_asymmetry.py Minimum Sample Sizes Per Sensor (Advisor Decision)
+## 2026-10-28: reviewer_directional_asymmetry.py Minimum Sample Sizes Per Sensor (Decision)
 
-Decision (advisor): the minimum pooled pixel counts are 6 px (class rule, self + partner) and
+Decision: the minimum pooled pixel counts are 6 px (class rule, self + partner) and
 22 px (pair rule) on Landsat (30 m; 0.54 ha / 1.98 ha) instead of 50 / 200 px (4.5 ha / 18 ha).
 Sentinel-2 keeps 50 / 200 px and must stay byte-identical. Skipped is still strictly below.
 This closes the 50 px and 200 px rows of the 2026-10-26 "Hard-coded values" table for this
@@ -453,7 +453,7 @@ Landsat, skipped by the minimum-pixel rules:
 - Pairs added: 56 (bekka 26, myscon 18, robert 12), 22-172 px. 8 of them involve Fire. The
   largest are the bekka/robert Forest<->Fire (172 px, log2 +/-7.44) and Harvest<->Fire
   (130 px, +/-7.03) pairs.
-- Heatmap: two cells filled in (reviewer C Development +1.66*, Unknown +0.81). The colour scale
+- Heatmap: two cells filled in (reviewer C Development +1.66*, Unknown +0.81). The color scale
   is unchanged (+/-7.49, set by Other) and all other cells are the same. Inspected: no
   overlapping text.
 
@@ -461,9 +461,9 @@ Open items from 2026-10-26: item 3 (blank cells, no explanation) stays open, but
 it now concerns only robert Other (0 px). Items 1 (Fire column) and 2 (reviewer letters) are
 unchanged.
 
-## 2026-10-28: spatial_tolerance.py Minimum Class Denominator Per Sensor (Advisor Decision)
+## 2026-10-28: spatial_tolerance.py Minimum Class Denominator Per Sensor (Decision)
 
-Decision (advisor): MIN_DENOM_PX is 500 px on Landsat (30 m, 45 ha pooled) instead of 5000 px
+Decision: MIN_DENOM_PX is 500 px on Landsat (30 m, 45 ha pooled) instead of 5000 px
 (450 ha). Sentinel-2 keeps 5000 px (50 ha) and must stay byte-identical. The comparison is
 unchanged: a class is plotted/printed if denom_px >= the minimum, left out if strictly below.
 The windows (3x3 and 5x5), null shifts, N_NULL, bootstrap and dpi are unchanged. This closes
@@ -540,7 +540,7 @@ Data (read-only):
 - Agriculture is never the argmax in any model, tile or pixel.
 - References: /vol/v1/HLS_Prithvi/HLS_prithvi_outputs, 391 rf_class rasters (16 empty folders).
   366 match a Prithvi output under the "target" rule (all 4 models present); 25 do not (25 grid
-  cells outside the 336, all in the CKIT_RF_*_grid_Landsat_* folders). Under centre-based lookup
+  cells outside the 336, all in the CKIT_RF_*_grid_Landsat_* folders). Under center-based lookup
   every matched reference has exactly 12,544 pixels under a Prithvi pixel (1:1); the extra row(s)
   and column (112-338 px) are nodata.
 
@@ -552,9 +552,9 @@ Design (prithvi_loader.py):
 - read_probs() refuses anything that is not the documented 5-band float32 probability stack
   (band names in order, finite, in [0, 1], sums to 1 within 1e-4), so the bands can never be
   read as class codes. collapsed_argmax(): argmax first, then collapse. align_to_reference():
-  centre-based lookup onto each reference raster's own grid (index arithmetic, no resampling);
-  reference pixels with no Prithvi pixel under the centre are nodata. zero_input_mask(): from the
-  chip's centre crop. load_for_reference(): aligned codes plus the aligned zero-input mask, unmasked,
+  center-based lookup onto each reference raster's own grid (index arithmetic, no resampling);
+  reference pixels with no Prithvi pixel under the center are nodata. zero_input_mask(): from the
+  chip's center crop. load_for_reference(): aligned codes plus the aligned zero-input mask, unmasked,
   or None when no output exists.
 
 Changes to collapsed_5class_confusion.py:
@@ -562,14 +562,14 @@ Changes to collapsed_5class_confusion.py:
   reference pixels excluded; Beaver reference pixels and what each model predicted on them in
   side_beaver.csv; Prithvi agriculture kept out of the matrix and reported by reference class in
   side_agriculture.csv. Main result masked by PRITHVI_ZERO_INPUT, unmasked result alongside
-  (_masked / _unmasked files, mask column in metrics_long.csv). CIs with FPC = 1, labelled "no FPC,
+  (_masked / _unmasked files, mask column in metrics_long.csv). CIs with FPC = 1, labeled "no FPC,
   Landsat frame size unknown" (Sentinel-2 keeps N_FRAME = 21561). Also writes reference.txt
   (provenance, provisional choices, open questions, pixel accounting), scored_cells.csv and
   no_prithvi_match.csv. --prithvi requires LCI_OUT_DIR and refuses --preds.
 - --truth is refused for --prithvi and for any LCI_SENSOR other than Sentinel-2.
 - metrics(), ratio_cis() and plot_rownorm() take any square matrix size (plot_rownorm gains
   labels= and scheme=); bootstrap_cis() gains metrics_fn= (default metrics). The defaults
-  reproduce the 5x5 behaviour used by the ~15 importing scripts.
+  reproduce the 5x5 behavior used by the ~15 importing scripts.
 - Macro-F1 for --prithvi only (metrics_f1_zero): a class present in the reference whose F1 is
   undefined (never predicted, or predicted with no true positive) gets F1 = 0 and counts in
   macro-F1 instead of being dropped, in the point estimate, the per-class F1 and the bootstrap
@@ -656,7 +656,7 @@ Read-only diagnostic of the provisional year rule (label year = reference target
 reference cell is scored against the Prithvi output for label year = target year + offset, offset
 -2..+2. A cell is skipped for an offset when no output exists for that year. Everything else is as
 in collapsed_5class_confusion.py --prithvi: seeded dedup (seed 42, 362 cells), argmax and
-centre-based lookup via prithvi_loader.py, 4x4 census (Beaver, Unknown and Fire excluded;
+center-based lookup via prithvi_loader.py, 4x4 census (Beaver, Unknown and Fire excluded;
 agriculture out of the matrix), metrics_f1_zero, and the zero-input mask "any_year" taken from
 the chip of the offset label year. prithvi_loader.py and collapsed_5class_confusion.py are
 imported, not changed. The script refuses to run without LCI_OUT_DIR or with a sensor other than
@@ -685,7 +685,7 @@ year_offset_metrics.csv.
 Caveats:
 - The restricted (all-5 cells) comparison was computed for offset 0 only; offset -1 uses 322
   cells, not 311. Given how little the restriction moves offset 0, the ranking should hold.
-- Development F1 favours -1 for three models; for unet3d it is 0.070 at offset 0 vs 0.064 at -1
+- Development F1 favors -1 for three models; for unet3d it is 0.070 at offset 0 vs 0.064 at -1
   (0.076 at 0 on the all-5 cells). Insect/Disease F1 is <= ~0.02 at every offset, too small to
   discriminate.
 - Only the any_year mask was run (not unmasked). Reference selection is still the provisional
@@ -707,23 +707,23 @@ Run command (from the repo root; writes check_landsat/reports/prithvi_year_offse
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_year_offset.py
 
-## 2026-11-05: Prithvi Grid Offset Documented (Advisor Decision)
+## 2026-11-05: Prithvi Grid Offset Documented (Decision)
 
-Decision: keep the existing centre-based lookup in prithvi_loader.py and document the grid offset
+Decision: keep the existing center-based lookup in prithvi_loader.py and document the grid offset
 as a known limitation. Documentation only; no calculation changes.
 
 - The Prithvi grid is offset 9.10 m east and 0.07 m north of the 30 m reference grid (9.1021 m,
   0.0729 m), identically on every tile. Measured on all 28,224 Prithvi outputs (2026-10-29) and
   re-checked from the file headers on 2026-11-05; all 391 reference rasters sit on the 30 m grid.
-- Each reference pixel takes the Prithvi pixel under its centre. That pixel overlaps it by about
+- Each reference pixel takes the Prithvi pixel under its center. That pixel overlaps it by about
   70% of its area ((30 - 9.10)/30 x (30 - 0.07)/30 = 69.5%).
 - So near class boundaries, especially at small change patches such as harvests, some
   model-reference disagreement may come from the grid offset rather than the model.
-- Because both grids have 30 m pixels, centre-based lookup is equivalent to nearest-neighbour
+- Because both grids have 30 m pixels, center-based lookup is equivalent to nearest-neighbor
   resampling (confirmed by the 72/72 spot check against rasterio reproject with nearest).
   Interpolating the class codes was not used because it would create meaningless class values;
   interpolating the probabilities before taking the argmax would be a valid alternative that
-  accounts for the partial overlap, but it smooths neighbouring predictions.
+  accounts for the partial overlap, but it smooths neighboring predictions.
 
 Changes: the prithvi_loader.py module docstring, and one new "grid offset:" line in the
 reference.txt provenance written by collapsed_5class_confusion.py --prithvi. It goes after the CIs
@@ -738,9 +738,9 @@ Run command (from the repo root):
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=check_offset_doc /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
 
-## 2026-11-05: Prithvi Year Rule Confirmed (target - 1) and Agriculture Handling (Advisor Decisions)
+## 2026-11-05: Prithvi Year Rule Confirmed (target - 1) and Agriculture Handling (Decisions)
 
-Decisions (advisor):
+Decisions:
 
 1. Use the confirmed one-year offset for Prithvi: label year = reference target year - 1.
 2. Agriculture: exclude it from the primary change-class matrix and report it separately.
@@ -766,7 +766,7 @@ Changes (Prithvi code only):
   marked confirmed; "which years the zero-input mask covers" stays PROVISIONAL.
 - scripts/collapsed_5class_confusion.py, --prithvi only (module docstring paragraph and the
   Prithvi section): the open-question line in reference.txt becomes "zero input (confirmed): ...";
-  the year-rule line names the rule and its status; agriculture is labelled "agricultural change
+  the year-rule line names the rule and its status; agriculture is labeled "agricultural change
   (no reference counterpart); excluded from the primary matrix and reported separately, per
   decision". Renamed side_agriculture.csv -> side_agricultural_change.csv and column
   predicted_agriculture_px -> predicted_agricultural_change_px; side_beaver.csv label
@@ -820,9 +820,9 @@ Run commands (from the repo root):
     # earlier target rule, for reproducibility:
     LCI_PRITHVI_YEAR_RULE=target LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=<scratch> /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
 
-## 2026-11-05: Prithvi Reference Selection Kept (Seeded, Seed 42) With Sensitivity Analysis (Advisor Decision)
+## 2026-11-05: Prithvi Reference Selection Kept (Seeded, Seed 42) With Sensitivity Analysis (Decision)
 
-Decision (advisor): keep the reproducible seeded selection (default_rng seed 42) of one
+Decision: keep the reproducible seeded selection (default_rng seed 42) of one
 interpretation per double-interpreted Landsat location for collapsed_5class_confusion.py --prithvi,
 with the sensitivity analysis documented. The selection is no longer listed as provisional. Still
 provisional: which years the zero-input mask covers (any_year default), and no FPC (Landsat frame
@@ -848,7 +848,7 @@ Sensitivity analysis (method): 391 reference rasters, 362 locations; 29 location
 interpretations (none has more): bekka+myscon 18, bekka+robert 6, myscon+robert 5. All pairs are on
 the same grid. Pick A = the seed-42 selection (the primary result); pick B = the same 362 cells,
 except every double-interpreted location uses the other reviewer's map. Both picks are scored with
-the --prithvi pipeline (argmax, centre lookup, zero-input mask any_year, 4x4 census with Beaver
+the --prithvi pipeline (argmax, center lookup, zero-input mask any_year, 4x4 census with Beaver
 excluded and agriculture excluded from the primary matrix, metrics with undefined F1 = 0). The
 differences B - A are compared against pick A's 95% cell-bootstrap CI width (seed 42, 2000 draws),
 at offsets -1 and 0. 8 metrics: OA, kappa, macro-F1, Harvest recall/precision/F1, Development
@@ -991,7 +991,7 @@ change; every other output is byte-identical.
 
 What changed (collapsed_5class_confusion.py):
 - Grid offset: evaluation_summary.txt/.md now include the grid-offset limitation line (Prithvi
-  grid 9.10 m east / 0.07 m north of the reference grid; centre lookup, about 70% overlap),
+  grid 9.10 m east / 0.07 m north of the reference grid; center lookup, about 70% overlap),
   placed right after "map field". The provenance lines are now selected by label (the text
   before the first ": ") via EVAL_PROVENANCE and _provenance_lines() instead of by position
   (provenance[1:9]); _provenance_lines() raises if a label is missing or duplicated, so adding or
@@ -1004,7 +1004,7 @@ What changed (collapsed_5class_confusion.py):
   "all 2000 draws were defined for every one of the N CIs", or the number of CIs below 2000 with
   a table (file, model, mask, metric, defined draws).
 - bootstrap_cis() and paired_bootstrap_diff() get an optional defined= argument (default None,
-  existing behaviour unchanged): a dict passed in is filled with the number of defined draws per
+  existing behavior unchanged): a dict passed in is filled with the number of defined draws per
   metric; the return value and the random draws are unchanged.
 - No new CSV columns: the eval_*.csv files are unchanged.
 
@@ -1138,3 +1138,47 @@ Run the evaluation into reports_landsat first, then this script:
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_class_ci_vs_interpreter.py --eval-csv reports_landsat/reports/collapsed_5class_confusion/eval_class_metrics.csv
+
+## 2026-11-11: Sentinel-2-Only Scripts (Do Not Use for Landsat or Prithvi)
+
+These are Sentinel-2 scripts. Run with no LCI_* settings, they work as designed on Sentinel-2 and
+write the committed results in reports/. They have not been updated for Landsat or Prithvi. They
+read the reference rasters through sensor_config, so they follow LCI_SENSOR and LCI_RF_DIR, but
+they write to hard-coded paths under reports/ and ignore LCI_OUT_DIR. Run with the Landsat
+settings, they would overwrite the committed Sentinel-2 results in reports/ with Landsat results,
+even if LCI_OUT_DIR is set. So do not use them for Landsat or Prithvi. Where a Landsat/Prithvi
+version is needed, it is written as a new script (for example,
+prithvi_class_ci_vs_interpreter.py replaces model_class_ci_5class.py for Prithvi).
+This list (20 scripts) replaces the five named in the 2026-10-21 entry.
+
+    build_binary_change.py                 reports/binary_change_no_change
+    build_changecap_sensitivity.py         reports/sensitivity_changecap
+    build_changecap_sensitivity_5class.py  reports/sensitivity_changecap_5class
+    build_spectral_confusion.py            reports/spectral_composite_classified_maps
+    build_transfer_confusion_5class.py     reports/transfer_confusion_adjudicated_5class
+    changecap_disagreement_panels.py       reports/sensitivity_changecap_5class/...
+    changecap_reference_comparison.py      reports/sensitivity_changecap_5class
+    dedup_sensitivity.py                   reports/model_comparison
+    interpreter_class_ci.py                reports/interpreter_agreement
+    model_class_ci_5class.py               reports/model_vs_interpreter_5class
+    per_cell_change_f1.py                  reports/per_cell_change_f1
+    per_cell_f1_5class.py                  reports/per_cell_f1_5class
+    sampling_experiment_ABCD.py            reports/Case_ABCD_sampling,
+                                           reports/Case_ABCD_sampling_5class
+    spatial_structure.py                   reports/spatial_structure
+    spectral_collapsed_5class.py           reports/spectral_composite_classified_maps/
+                                           collapsed_5class
+    spectral_disagreement_panels.py        reports/spectral_composite_classified_maps/
+                                           comparison/...
+    window_sampling_approachA.py           reports/window_sampling_by_approach/
+                                           Case_A_window_sampling
+    window_sampling_approachB.py           reports/window_sampling_by_approach/
+                                           Case_B_window_sampling
+    window_sampling_approachC.py           reports/window_sampling_by_approach/
+                                           Case_C_window_sampling
+    window_sampling_approachD.py           reports/window_sampling_by_approach/
+                                           Case_D_window_sampling
+
+adjudication_effect.py (uses out_path, so not in the list above): the metric label
+"dilution_180cell", and the "180-cell" comments and console text, now cover 199 locations
+(9.06% -> 8.19%). Fix the label before any Sentinel-2 regeneration.
