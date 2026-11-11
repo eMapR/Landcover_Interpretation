@@ -1070,3 +1070,71 @@ overlaps. The script refuses to run without LCI_OUT_DIR, on a sensor other than 
 output path inside reports/ or the Prithvi data folders.
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_disagreement_panels.py --mode both
+
+## 2026-11-11: New Script: Prithvi Per-Class F1 vs Interpreter Agreement
+
+New Landsat-only script scripts/prithvi_class_ci_vs_interpreter.py, the Landsat counterpart of
+scripts/model_class_ci_5class.py. For each of the four Prithvi models it draws per-class F1 (with a
+95% CI) next to the inter-interpreter agreement for the same class, computed from the Landsat
+double-interpreted pairs. The interpreter agreement is a benchmark for reference noise, not a strict
+upper bound: each model is scored against one interpretation and can in principle score above it.
+
+Inputs: the Landsat interpreted reference rasters (LCI_RF_DIR); the Prithvi outputs and chips, read
+through scripts/prithvi_loader.py; and eval_class_metrics.csv, written by
+collapsed_5class_confusion.py --prithvi, given with --eval-csv (required); the script checks its own
+numbers against it. Same scheme as the evaluation: Stable, Harvest, Development, Insect/Disease;
+Beaver, Unknown/Fire and agricultural change excluded; only pixels with a Prithvi pixel under the
+reference pixel center; zero-input mask any_year.
+
+Model side: the 312 scored cells, rebuilt with the evaluation's own functions (seeded selection,
+metrics_f1_zero, cell bootstrap, seed 42, 2000 draws). Interpreter side: of the 29 Landsat
+double-interpreted pairs, 27 have Prithvi output (the 2 with target year 2004 have label year 2003,
+which has no outputs) and 26 are used (cell 28412 is fully zero-input masked). Both reviewers' maps
+are collapsed the same way, a pixel counts when both assigned one of the four classes,
+F1 = 2TP/(row + col), and the CI comes from a pair bootstrap (seed 42, 2000 draws).
+
+Interpreter agreement (26 pairs):
+
+    Stable          0.996 (0.993 to 0.998)
+    Harvest         0.515 (0.257 to 0.713)   15 pairs, 3,312 px
+    Development     0.356 (0.040 to 0.579)    9 pairs, 74 px
+    Insect/Disease  0.000 (0.000 to 0.000)    7 pairs, 81 px; the two interpreters never agreed
+
+Model F1, all 312 cells / paired 26 cells:
+
+    model         Stable          Harvest         Development     Insect/Disease
+    fcn_frozen    0.990 / 0.993   0.372 / 0.228   0.031 / 0.070   0.011 / 0.008
+    fcn_random    0.990 / 0.991   0.317 / 0.219   0.016 / 0.016   0.011 / 0.000
+    fcn_unfrozen  0.993 / 0.996   0.376 / 0.355   0.065 / 0.114   0.023 / 0.000
+    unet3d        0.993 / 0.995   0.346 / 0.198   0.064 / 0.012   0.016 / 0.000
+
+"Gap all" is model F1 on all 312 cells minus interpreter F1 on the 26 pairs. It has no CI, because
+the two sides use different cells and different resampling units. "Gap paired" is model F1 on only
+the 26 paired cells (same cells and pixels as the interpreters, reference = the seeded-selected
+reviewer) minus interpreter F1, with a paired bootstrap CI (the same resampled pairs for both).
+
+For Harvest every paired-gap CI includes 0 (for example fcn_unfrozen -0.160, -0.339 to 0.092), so
+on 26 pairs the models cannot be shown to fall below the interpreters. For Development the paired
+gap excludes 0 for fcn_frozen, fcn_random and fcn_unfrozen (for example fcn_unfrozen -0.242, -0.403
+to -0.030); for unet3d the upper bound is 0.000. Three models score clearly lower on Harvest on the
+paired cells than on all cells (0.20 to 0.23 vs 0.32 to 0.37); fcn_unfrozen barely changes (0.355
+vs 0.376).
+
+Outputs (in $LCI_OUT_DIR/reports/prithvi_vs_interpreter/): prithvi_vs_interpreter_class_f1.csv
+(one row per series, model, scope and class), prithvi_vs_interpreter_gap.csv (interpreter, model
+all and paired, both gaps), pairs_used.csv (all 29 pairs and why each is used or not), one forest
+plot per model (forest_prithvi_<model>.png), a combined forest_prithvi_all_models.png, and note.md.
+
+Checks: all 16 any_year rows of eval_class_metrics.csv are reproduced exactly (UA, PA, F1 and CIs
+to 5 decimals, supports and n_cells); the script stops before writing anything if they do not
+match. The figure fit-check (every text against every other text, marker, interval and threshold
+line) reports 0 WARN, and all five figures were read. The script refuses to run without
+--eval-csv, without LCI_OUT_DIR, or on a sensor other than Landsat (all three tested by running
+it); the output-folder check (refusing paths inside reports/, /vol/v1/HLS_Prithvi,
+/home/server/hpc/emapr or the Prithvi root, including the path LCI_OUT_DIR=. resolves to) was
+tested by calling check_out_path() directly.
+
+Run the evaluation into reports_landsat first, then this script:
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_class_ci_vs_interpreter.py --eval-csv reports_landsat/reports/collapsed_5class_confusion/eval_class_metrics.csv
