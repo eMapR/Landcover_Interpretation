@@ -1254,3 +1254,66 @@ Run the evaluation into reports_landsat first, then this script:
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_per_cell_change_f1.py --eval-csv reports_landsat/reports/collapsed_5class_confusion/eval_class_metrics.csv
+
+## 2026-11-12: New Script: Prithvi Per-Cell Macro-F1 (4 Classes)
+
+New Landsat-only script scripts/prithvi_per_cell_f1_4class.py, the Landsat counterpart of
+scripts/per_cell_f1_5class.py (Sentinel-2 only). For each of the four Prithvi models and each scored
+grid cell, it builds the cell's 4x4 confusion matrix against the interpreted Landsat reference and
+computes the cell's macro-F1: the unweighted mean of the per-class F1 over the classes included in
+the cell. Four classes (Stable, Harvest, Development, Insect/Disease), since Beaver is excluded for
+Prithvi.
+
+Inputs and method: the per-cell matrices come from prithvi_class_ci_vs_interpreter.model_cells()
+and the per-class F1 (2TP / (reference px + predicted px), 0 when there is no true positive) from
+prithvi_per_cell_change_f1.cell_f1(). Same cells, scheme and seeded reviewer selection (seed 42) as
+the evaluation, whereas the Sentinel-2 script used the adjudicated truth list (--truth): label year
+= reference target year - 1; Beaver and Unknown/Fire excluded; only pixels with a Prithvi pixel
+under the reference pixel center; zero-input mask any_year; the 312 scored cells. Agricultural
+change is excluded from the matrix as in the evaluation; no model predicts it (0 px). Inputs are
+the Landsat interpreted reference rasters (LCI_RF_DIR), the Prithvi outputs and chips, and the
+collapsed_5class_confusion.py --prithvi outputs, given with --eval-csv (required). Include rule: a
+class counts in a cell's macro-F1 if it is in the reference or the prediction (default, used for
+the figures), or only if it is in the reference (reported in the summary CSV and note.md). All four
+models share the same 312 cells, so there is no common cell set as in the Sentinel-2 script.
+
+Results: Stable scores about 1 and the change classes about 0 in most cells, so a cell's macro-F1
+is close to 1/n, where n is the number of classes included. Under the default rule the median per
+model is 1.000 with 1 class, 0.499 to 0.500 with 2, 0.332 to 0.333 with 3 and 0.249 to 0.250 with
+4. The per-cell macro-F1 therefore mostly counts the classes in a cell, and under the default rule a
+model that predicts less change includes fewer classes and scores higher:
+
+    model         Stable-only cells   mean per-cell macro-F1   pooled macro-F1 (evaluation)
+    fcn_frozen    11                  0.405                    0.351
+    fcn_random    20                  0.440                    0.334
+    fcn_unfrozen  54                  0.571                    0.364
+    unet3d        55                  0.555                    0.355
+
+Under the reference-only rule every model has the same cell composition (99 / 144 / 63 / 6 cells
+with 1 / 2 / 3 / 4 reference classes) and the means are 0.667 to 0.680, so the models are nearly
+equal per cell. The reference-only rows are the fairer model comparison.
+
+Outputs (in $LCI_OUT_DIR/reports/prithvi_per_cell_f1_4class/): prithvi_per_cell_f1_4class.csv (one
+row per model and cell: macro-F1, classes included and Stable-only flag under both rules, number of
+reference classes, per-class F1), prithvi_per_cell_f1_summary.csv (per include rule, model and
+subset, all cells or excluding Stable-only cells: counts, cells by number of included classes,
+mean, median, quartiles, min, max, pooled macro-F1), prithvi_f1_violin.png (per-cell macro-F1 by
+model, Stable-only cells as hollow points, 1/n guide lines), prithvi_f1_by_n_classes.png
+(reference classes per cell; macro-F1 by classes included, per model), and note.md.
+
+Checks, all before anything is written (the script stops on any difference): the per-cell matrices
+summed over the 312 cells equal the masked confusion count CSVs entry by entry for all four models;
+the reference and predicted supports and n_cells equal all 16 any_year rows of
+eval_class_metrics.csv; all 312 cells are listed in scored_cells.csv; the pooled macro-F1
+(metrics_f1_zero on the pooled matrix) equals the any_year macro_F1 in metrics_long.csv to 5
+decimals for all four models; the per-cell macro-F1 under the reference-only rule equals
+metrics_f1_zero macro-F1 on all 1,248 (model, cell) cases. The figure fit-check reports 0 WARN,
+and both figures were read. The script refuses to run without --eval-csv, without LCI_OUT_DIR, or
+on a sensor other than Landsat (all three tested by running it); the output-folder check
+(check_out_path, reused from prithvi_class_ci_vs_interpreter.py) was tested by calling it directly
+and by running with LCI_OUT_DIR=., which resolves into reports/.
+
+Run the evaluation into reports_landsat first, then this script:
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_per_cell_f1_4class.py --eval-csv reports_landsat/reports/collapsed_5class_confusion/eval_class_metrics.csv
