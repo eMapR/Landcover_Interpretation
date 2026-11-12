@@ -1182,3 +1182,75 @@ This list (20 scripts) replaces the five named in the 2026-10-21 entry.
 adjudication_effect.py (uses out_path, so not in the list above): the metric label
 "dilution_180cell", and the "180-cell" comments and console text, now cover 199 locations
 (9.06% -> 8.19%). Fix the label before any Sentinel-2 regeneration.
+
+## 2026-11-12: New Script: Prithvi Per-Cell F1 per Change Class
+
+New Landsat-only script scripts/prithvi_per_cell_change_f1.py, the Landsat counterpart of
+scripts/per_cell_change_f1.py (Sentinel-2 only). For each of the four Prithvi models, each scored
+grid cell and each change class (Harvest, Development, Insect/Disease), it builds the cell's 4x4
+confusion matrix against the interpreted Landsat reference and computes that class's F1 in the cell.
+It then shows the distribution of per-cell F1 across cells, per model and class. Stable is kept in
+the matrix but not analyzed.
+
+Inputs: the Landsat interpreted reference rasters (LCI_RF_DIR); the Prithvi outputs and chips, read
+through scripts/prithvi_loader.py; and the collapsed_5class_confusion.py --prithvi outputs, given
+with --eval-csv (required): eval_class_metrics.csv, and from the same folder the masked confusion
+count CSVs and scored_cells.csv. Same scheme and cells as the evaluation: Stable, Harvest,
+Development, Insect/Disease; Beaver, Unknown/Fire and agricultural change excluded; only pixels with
+a Prithvi pixel under the reference pixel center; zero-input mask any_year; the 312 scored cells
+with seeded reviewer selection (seed 42). This differs from the Sentinel-2 script, which used the
+adjudicated truth list (--truth): no Landsat truth set exists, so the evaluation's seeded selection
+is used, as decided on 2026-11-05. The per-cell matrices come from the evaluation's own functions,
+through prithvi_class_ci_vs_interpreter.model_cells(). All four models are scored on the same cells,
+so there is no separate common cell set as in the Sentinel-2 script.
+
+Include rule: by default a cell counts for a class if the class is in the reference or the
+prediction (--include ref_or_pred), so a cell where only the model predicts the class scores 0;
+--include ref_only counts only cells with the class in the reference. The figures use the default
+rule; the summary CSV and note.md report both. Per-cell F1 = 2TP / (reference px + predicted px) of
+the class in the cell, 0 when there is no true positive. This equals the evaluation's
+metrics_f1_zero on every cell where the class is in the reference, but metrics_f1_zero leaves a
+prediction-only cell undefined, which would silently drop the commission cells the default rule is
+meant to include. No minimum pixel count: cells with fewer than 5 px of the class in reference +
+prediction are kept and counted; no cell scores exactly 1.
+
+Results (default rule, N = included cells):
+
+    model         Harvest              Development          Insect/Disease
+                  N    mean   pooled   N    mean   pooled   N    mean   pooled
+    fcn_frozen    198  0.198  0.372    177  0.019  0.031    257  0.003  0.011
+    fcn_random    201  0.166  0.317    268  0.012  0.016     94  0.003  0.011
+    fcn_unfrozen  192  0.208  0.376    138  0.034  0.065     69  0.004  0.023
+    unet3d        209  0.171  0.346    121  0.035  0.064     96  0.003  0.016
+
+The median per-cell F1 is 0 in every (model, class) tile, because most included cells score 0. The
+per-cell mean is about half the pooled F1 of the evaluation for Harvest (0.17 to 0.21 vs 0.32 to
+0.38) and also below it for the other two classes. Many included cells are prediction-only
+(commission): fcn_frozen Insect/Disease 210 of 257 (82%), fcn_random Development 188 of 268 (70%),
+fcn_frozen Development 97 of 177 (55%), unet3d Insect/Disease 49 of 96 (51%). Those distributions
+mostly measure false alarms. Under the reference-only rule N is 161 (Harvest), 80 (Development)
+and 47 (Insect/Disease) for every model; the means are 0.208 to 0.248 for Harvest, 0.041 to 0.058
+for Development and 0.005 to 0.014 for Insect/Disease, and the medians stay 0 except fcn_frozen
+Harvest (0.033) and fcn_unfrozen Harvest (0.009).
+
+Outputs (in $LCI_OUT_DIR/reports/prithvi_per_cell_change_f1/): prithvi_per_cell_change_f1.csv (one
+row per model, change class and cell with the class in reference or prediction),
+prithvi_change_f1_summary.csv (per include rule, class and model: N, composition, small cells,
+mean, median, quartiles, F1 = 0 / 1 counts, pooled F1), prithvi_change_f1_violins.png,
+prithvi_change_f1_heatmap.png (mean per-cell F1, with median and n in each tile), and note.md.
+
+Checks, all before anything is written (the script stops on any difference): the per-cell matrices
+summed over the 312 cells equal the masked confusion count CSVs entry by entry for all four models;
+the reference and predicted supports and n_cells equal all 16 any_year rows of
+eval_class_metrics.csv; 2TP/(ref+pred) equals metrics_f1_zero on all 1,152 (model, cell, class)
+cases with the class in the reference; all 312 cells are listed in scored_cells.csv. The figure
+fit-check (every text against every other text, the canvas edge and every plot area; heat tile text
+inside its tile) reports 0 WARN, and both figures were read. The script refuses to run without
+--eval-csv, without LCI_OUT_DIR, or on a sensor other than Landsat (all three tested by running
+it); the output-folder check (check_out_path, reused from prithvi_class_ci_vs_interpreter.py) was
+tested by calling it directly and by running with LCI_OUT_DIR=., which resolves into reports/.
+
+Run the evaluation into reports_landsat first, then this script:
+
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
+    LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_per_cell_change_f1.py --eval-csv reports_landsat/reports/collapsed_5class_confusion/eval_class_metrics.csv
