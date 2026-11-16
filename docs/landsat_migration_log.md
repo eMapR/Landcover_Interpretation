@@ -676,7 +676,7 @@ five offsets:
 | unet3d | 0.008 / 0.017 | **0.309 / 0.346** | 0.211 / 0.238 | 0.001 / 0.005 | -0.005 / 0.001 | 0.216 / 0.242 |
 
 Offset -1 fits best for all four models. Compared with offset 0, kappa rises by 0.07-0.10 and Harvest
-F1 by 0.08-0.10, with both Harvest recall and precision higher. +1 and +2 are at chance (kappa
+F1 by 0.08-0.11, with both Harvest recall and precision higher. +1 and +2 are at chance (kappa
 ~0) and -2 is near it, so the signal is tied to one year. Restricting offset 0 to the all-5 cells
 moves kappa and Harvest F1 by <= 0.005, so the gain is not a cell-set effect. Harvest recall,
 precision, Development F1 and Insect/Disease F1 per model and offset are in
@@ -976,7 +976,7 @@ Results (masked, the main run; 312 cells, 3,470,355 px):
 - fcn_random is worst: it is lower than each of the other three models on all four metrics, and
   all 12 of its difference CIs exclude 0.
 - Most error is change called Stable: 72-77% of reference change pixels are predicted Stable
-  (Change PA 0.24-0.28). Missed change (FN) outnumbers false change (FP) for every model, by about
+  (Change PA 0.23-0.28). Missed change (FN) outnumbers false change (FP) for every model, by about
   3:1 for fcn_unfrozen and unet3d, but for fcn_frozen the two are nearly equal (35,693 vs 35,604).
 - Beaver-as-change sensitivity changes Change F1 by at most 0.0055 (masked).
 
