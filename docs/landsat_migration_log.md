@@ -1317,3 +1317,58 @@ Run the evaluation into reports_landsat first, then this script:
 
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/collapsed_5class_confusion.py --prithvi
     LCI_SENSOR=Landsat LCI_RF_DIR=/vol/v1/HLS_Prithvi/HLS_prithvi_outputs LCI_OUT_DIR=reports_landsat /vol/v1/bekka/venvs/lci/bin/python scripts/prithvi_per_cell_f1_4class.py --eval-csv reports_landsat/reports/collapsed_5class_confusion/eval_class_metrics.csv
+
+## 2026-11-16: Reproducibility and Sensitivity Checks
+
+Read-only checks of the Landsat interpreter and Prithvi results. No script, setting or result changed.
+
+Sensitivity checks (2026-11-06, check_sens/sens_checks.py; outputs in check_sens/). Both checks use
+the evaluation's own functions from collapsed_5class_confusion.py --prithvi; unchanged, they reproduce
+all 176 compared values of eval_class_metrics.csv and eval_binary_metrics.csv exactly. Each check
+compares kappa, macro-F1, Harvest UA/PA/F1 and Change UA/PA/F1 per model and mask with the
+unweighted result.
+- Reference code 0 (check2_drop_code0_cells.csv): the 3 scored cells where code 0 marks missing
+  imagery (37611, 51372, 52163) are dropped. Largest change 0.00084 (fcn_frozen Change UA, unmasked;
+  0.00067 masked), at most 0.008 of the CI width; no ranking changes.
+- Year weighting (check1_year_weighted.csv, check1_cells_per_year.csv): each cell is weighted by
+  N_year / n_year, with N_year = NAIP-covered cells of its target year in
+  grid_112_naip_brackets_5_11_26 and n_year = scored cells of that year (2004 has none). Largest
+  change in kappa, macro-F1, Harvest F1 and Change F1: 0.0076 (fcn_random Change F1, masked); their
+  model rankings are unchanged under both masks. UA moves more: up to 0.020 masked and 0.040
+  unmasked (unet3d Harvest UA, 0.19 of its CI width), and two UA rankings change (masked Change UA:
+  fcn_frozen and fcn_random swap third and fourth; unmasked Harvest UA: unet3d moves from third to
+  first).
+Neither check changes a conclusion in this log; those rest on kappa, macro-F1, Harvest F1 and
+Change F1.
+
+Recap run (2026-11-11, check_recap_landsat/): 19 Landsat runs, the 15 interpreter commands and the
+4 Prithvi scripts (collapsed_5class_confusion.py --prithvi, prithvi_year_offset.py,
+prithvi_dedup_check.py, prithvi_disagreement_panels.py --mode both), all exit 0 with no errors.
+Data checks (data_checks/):
+- (A) Codes: the 391 Landsat reference rasters contain only codes 0, 1, 2, 3, 4, 5, 10, 13, 20,
+  30, 40, 50 and 62; none is outside 0..62 (codes_Landsat.csv).
+- (B) Samples: 362 grid + sample + target keys and 362 grid + target keys, so no grid cell and
+  target year appears under more than one sample number (grid_target_multi_sample_Landsat.csv is
+  empty), and no Prithvi output (cell + label year) is shared by two locations.
+
+Code review (2026-11-11), two points with no effect on the results:
+- collapse_reference() maps any code outside 0..62 to class index 0, so such a pixel would count as
+  Stable. Data check A found no such code.
+- deduped_cells() groups rasters by grid, sample and target (location_key), so one grid cell and
+  target year under two sample numbers would be kept twice. Data check B found none.
+
+Reruns (2026-11-16):
+- The 7 Prithvi scripts at commit 5c7d8bf (collapsed_5class_confusion.py --prithvi,
+  prithvi_year_offset.py, prithvi_dedup_check.py, prithvi_disagreement_panels.py --mode both,
+  prithvi_class_ci_vs_interpreter.py, prithvi_per_cell_change_f1.py, prithvi_per_cell_f1_4class.py)
+  into check_fullrun2/: all exit 0, no WARN, and the eval-csv checks of the last three pass. All 108
+  files are byte-identical to check_fullrun/. Every Prithvi number in this log for the current year
+  rule (target - 1, mask any_year) that the outputs contain reproduces, except two rounding ranges,
+  fixed in efcbad3: the Harvest F1 rise from offset 0 to -1 (unet3d +0.108; now 0.08-0.11) and
+  Change PA (unet3d 0.2346; now 0.23-0.28).
+- The 11 interpreter scripts (15 commands, in the recap order and with its options) into
+  check_interp_landsat/: all exit 0, no WARN. All 91 files are byte-identical to
+  check_recap_landsat/. The checked numbers reproduce: 29 pairs; 0.09 ha per pixel; 45 change-change
+  conflict px (4.0 ha); 29,301 patches (21,341 disagreement); 19,028 disagreement patches under
+  5 px (89.2%); the significant over-assignments robert Insect/Disease +5.81, myscon Unknown +4.17
+  and robert Development +1.66; Harvest A->B delta_net_3 +0.014.
